@@ -1,4 +1,4 @@
-# Cargo-nanos
+# Cargo-ledger
 
 Builds a NanoS App and outputs an `app.json` manifest file for [ledgerctl](https://github.com/LedgerHQ/ledgerctl)
 
