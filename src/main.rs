@@ -77,14 +77,10 @@ fn main(){
     let mut exe_path = std::path::PathBuf::new();
     let reader = std::io::BufReader::new(cargo_cmd.stdout.take().unwrap());
     for message in cargo_metadata::Message::parse_stream(reader) {
-        match message.unwrap() {
-            Message::CompilerArtifact(artifact) => {
-                match artifact.executable {
-                    Some(n) => { exe_path = n; },
-                    _ => ()
-                }
-            },
-            _ => () // Unknown message
+        if let Message::CompilerArtifact(artifact) = message.unwrap() {
+            if let Some(n) = artifact.executable {
+                exe_path = n;
+            }
         }
     }
 
