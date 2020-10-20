@@ -1,10 +1,10 @@
-use std::process::{Stdio, Command};
 use cargo_metadata::Message;
-use clap::{Arg,App};
+use clap::{App, Arg};
+use std::process::{Command, Stdio};
 
+use std::fs;
 use std::io;
 use std::io::Write;
-use std::fs;
 
 use serde_json::json;
 
@@ -20,7 +20,7 @@ fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
         match name {
             "_nvram_data" => nvram_data = s.st_value,
             "_envram_data" => envram_data = s.st_value,
-            _ => ()
+            _ => (),
         }
     }
     Ok(envram_data - nvram_data)
@@ -30,17 +30,17 @@ fn export_binary(elf_path: &std::path::Path) -> std::path::PathBuf {
     let dest_bin = elf_path.parent().unwrap().to_path_buf().join("app.hex");
 
     Command::new("arm-none-eabi-objcopy")
-                        .arg(&elf_path)
-                        .arg(&dest_bin)
-                        .args(&["-O", "ihex"])
-                        .output()
-                        .expect("Objcopy failed");
+        .arg(&elf_path)
+        .arg(&dest_bin)
+        .args(&["-O", "ihex"])
+        .output()
+        .expect("Objcopy failed");
 
     // print some size info while we're here
     let out = Command::new("arm-none-eabi-size")
-                        .arg(&elf_path)
-                        .output()
-                        .expect("Size failed");
+        .arg(&elf_path)
+        .output()
+        .expect("Size failed");
 
     io::stdout().write_all(&out.stdout).unwrap();
     io::stderr().write_all(&out.stderr).unwrap();
@@ -50,25 +50,24 @@ fn export_binary(elf_path: &std::path::Path) -> std::path::PathBuf {
 
 use serde_derive::Deserialize;
 
-#[derive(Debug, Deserialize)] 
+#[derive(Debug, Deserialize)]
 struct NanosMetadata {
     curve: String,
     flags: String,
     icon: String,
 }
 
-fn main(){
+fn main() {
     let matches = App::new("Ledger NanoS load commands")
-                        .version("0.0")
-                        .about("Builds the project and emits a JSON manifest for ledgerctl.")
-                        .arg(Arg::new("ledger"))
-                        .subcommand(App::new("load")
-                            .about("Load the app onto a nano"))
-                        .get_matches();
+        .version("0.0")
+        .about("Builds the project and emits a JSON manifest for ledgerctl.")
+        .arg(Arg::new("ledger"))
+        .subcommand(App::new("load").about("Load the app onto a nano"))
+        .get_matches();
 
     let is_load = matches.subcommand_matches("load").is_some();
 
-    let mut cargo_cmd = Command::new("cargo") 
+    let mut cargo_cmd = Command::new("cargo")
         .args(&["build", "--release", "--message-format=json"])
         .stdout(Stdio::piped())
         .spawn()
@@ -90,17 +89,25 @@ fn main(){
     let res = cmd.no_deps().exec().unwrap();
 
     let this_pkg = res.packages.last().unwrap();
-    let this_metadata: NanosMetadata = serde_json::from_value(this_pkg.metadata["nanos"].clone()).unwrap();
+    let this_metadata: NanosMetadata =
+        serde_json::from_value(this_pkg.metadata["nanos"].clone()).unwrap();
 
     export_binary(&exe_path);
 
-    let current_dir = std::path::Path::new(&this_pkg.manifest_path).parent().unwrap();
+    let current_dir = std::path::Path::new(&this_pkg.manifest_path)
+        .parent()
+        .unwrap();
 
     // app.json will be placed in the app's root directory
     let app_json = current_dir.join("app.json");
 
     // Find hex file path relative to 'app.json'
-    let hex_file = exe_path.strip_prefix(current_dir).unwrap().parent().unwrap().join("app.hex");
+    let hex_file = exe_path
+        .strip_prefix(current_dir)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app.hex");
 
     // Retrieve real 'dataSize' from ELF
     let data_size = retrieve_data_size(&exe_path).unwrap();
@@ -118,16 +125,16 @@ fn main(){
         },
         "binary": hex_file,
         "dataSize": data_size
-    }); 
+    });
     serde_json::to_writer_pretty(file, &json).unwrap();
 
     if is_load {
         let out = Command::new("ledgerctl")
-                    .current_dir(current_dir)
-                    .args(&["install", "-f", app_json.as_path().to_str().unwrap()])
-                    .output()
-                    .expect("fail");
-        
+            .current_dir(current_dir)
+            .args(&["install", "-f", app_json.as_path().to_str().unwrap()])
+            .output()
+            .expect("fail");
+
         io::stdout().write_all(&out.stdout).unwrap();
         io::stderr().write_all(&out.stderr).unwrap();
     }
