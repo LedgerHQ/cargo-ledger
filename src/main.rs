@@ -2,6 +2,7 @@ use cargo_metadata::Message;
 use clap::{App, Arg};
 use std::process::{Command, Stdio};
 
+use std::env;
 use std::fs;
 use std::io;
 use std::io::Write;
@@ -29,15 +30,21 @@ fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
 fn export_binary(elf_path: &std::path::Path) -> std::path::PathBuf {
     let dest_bin = elf_path.parent().unwrap().to_path_buf().join("app.hex");
 
-    Command::new("arm-none-eabi-objcopy")
+    let objcopy = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_OBJCOPY")
+        .unwrap_or("arm-none-eabi-objcopy".into());
+
+    Command::new(objcopy)
         .arg(&elf_path)
         .arg(&dest_bin)
         .args(&["-O", "ihex"])
         .output()
         .expect("Objcopy failed");
 
+    let size = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_SIZE")
+        .unwrap_or("arm-none-eabi-size".into());
+
     // print some size info while we're here
-    let out = Command::new("arm-none-eabi-size")
+    let out = Command::new(size)
         .arg(&elf_path)
         .output()
         .expect("Size failed");
