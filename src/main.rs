@@ -60,8 +60,10 @@ use serde_derive::Deserialize;
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
     curve: String,
+    path: String,
     flags: String,
     icon: String,
+    name: Option<String>
 }
 
 fn main() {
@@ -122,13 +124,14 @@ fn main() {
     // create manifest
     let file = fs::File::create(&app_json).unwrap();
     let json = json!({
-        "name": &this_pkg.name,
+        "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
         "icon": &this_metadata.icon,
         "targetId": "0x31100004",
         "flags": this_metadata.flags,
         "derivationPath": {
-            "curves": [ this_metadata.curve ]
+            "curves": [ this_metadata.curve ],
+            "paths": [ this_metadata.path ]
         },
         "binary": hex_file,
         "dataSize": data_size
