@@ -1,5 +1,5 @@
 use cargo_metadata::Message;
-use clap::{App, Arg};
+use clap::Clap;
 use std::process::{Command, Stdio};
 
 use std::env;
@@ -27,9 +27,7 @@ fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
     Ok(envram_data - nvram_data)
 }
 
-fn export_binary(elf_path: &std::path::Path) -> std::path::PathBuf {
-    let dest_bin = elf_path.parent().unwrap().to_path_buf().join("app.hex");
-
+fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
     let objcopy = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_OBJCOPY")
         .unwrap_or("arm-none-eabi-objcopy".into());
 
@@ -51,8 +49,6 @@ fn export_binary(elf_path: &std::path::Path) -> std::path::PathBuf {
 
     io::stdout().write_all(&out.stdout).unwrap();
     io::stderr().write_all(&out.stderr).unwrap();
-
-    dest_bin
 }
 
 use serde_derive::Deserialize;
@@ -63,36 +59,65 @@ struct NanosMetadata {
     path: String,
     flags: String,
     icon: String,
-    name: Option<String>
+    name: Option<String>,
+}
+
+#[derive(Clap)]
+#[clap(name = "Ledger NanoS load commands")]
+#[clap(version = "0.0")]
+#[clap(about = "Builds the project and emits a JSON manifest for ledgerctl.")]
+struct Cli {
+    #[clap(long)]
+    #[clap(value_name = "prebuilt ELF exe")]
+    use_prebuilt: Option<std::path::PathBuf>,
+
+    #[clap(long)]
+    #[clap(about = concat!(
+        "Should the app.hex be placed next to the app.json, or next to the input exe?",
+        " ",
+        "Typically used with --use-prebuilt when the input exe is in a read-only location.",
+    ))]
+    hex_next_to_json: bool,
+
+    #[clap(subcommand)]
+    command: Option<SubCommand>,
+}
+
+#[derive(Clap)]
+enum SubCommand {
+    /// Load the app onto a nano
+    Load,
 }
 
 fn main() {
-    let matches = App::new("Ledger NanoS load commands")
-        .version("0.0")
-        .about("Builds the project and emits a JSON manifest for ledgerctl.")
-        .arg(Arg::new("ledger"))
-        .subcommand(App::new("load").about("Load the app onto a nano"))
-        .get_matches();
+    let cli: Cli = Cli::parse();
 
-    let is_load = matches.subcommand_matches("load").is_some();
+    let exe_path = match cli.use_prebuilt {
+        None => {
+            let mut cargo_cmd = Command::new("cargo")
+                .args(&["build", "--release", "--message-format=json"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
 
-    let mut cargo_cmd = Command::new("cargo")
-        .args(&["build", "--release", "--message-format=json"])
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let mut exe_path = std::path::PathBuf::new();
-    let reader = std::io::BufReader::new(cargo_cmd.stdout.take().unwrap());
-    for message in cargo_metadata::Message::parse_stream(reader) {
-        if let Message::CompilerArtifact(artifact) = message.unwrap() {
-            if let Some(n) = artifact.executable {
-                exe_path = n;
+            let mut exe_path = std::path::PathBuf::new();
+            let reader =
+                std::io::BufReader::new(cargo_cmd.stdout.take().unwrap());
+            for message in cargo_metadata::Message::parse_stream(reader) {
+                if let Message::CompilerArtifact(artifact) = message.unwrap() {
+                    if let Some(n) = artifact.executable {
+                        exe_path = n;
+                    }
+                }
             }
-        }
-    }
 
-    let _output = cargo_cmd.wait().expect("Couldn't get cargo's exit status");
+            let _output =
+                cargo_cmd.wait().expect("Couldn't get cargo's exit status");
+
+            exe_path
+        }
+        Some(prebuilt) => prebuilt,
+    };
 
     let mut cmd = cargo_metadata::MetadataCommand::new();
     let res = cmd.no_deps().exec().unwrap();
@@ -101,22 +126,24 @@ fn main() {
     let this_metadata: NanosMetadata =
         serde_json::from_value(this_pkg.metadata["nanos"].clone()).unwrap();
 
-    export_binary(&exe_path);
-
     let current_dir = std::path::Path::new(&this_pkg.manifest_path)
         .parent()
         .unwrap();
+
+    let hex_file_abs = if cli.hex_next_to_json {
+        current_dir
+    } else {
+        exe_path.parent().unwrap()
+    }
+    .join("app.hex");
+
+    export_binary(&exe_path, &hex_file_abs);
 
     // app.json will be placed in the app's root directory
     let app_json = current_dir.join("app.json");
 
     // Find hex file path relative to 'app.json'
-    let hex_file = exe_path
-        .strip_prefix(current_dir)
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("app.hex");
+    let hex_file = hex_file_abs.strip_prefix(current_dir).unwrap();
 
     // Retrieve real 'dataSize' from ELF
     let data_size = retrieve_data_size(&exe_path).unwrap();
@@ -138,7 +165,7 @@ fn main() {
     });
     serde_json::to_writer_pretty(file, &json).unwrap();
 
-    if is_load {
+    if let Some(SubCommand::Load) = cli.command {
         let out = Command::new("ledgerctl")
             .current_dir(current_dir)
             .args(&["install", "-f", app_json.as_path().to_str().unwrap()])
