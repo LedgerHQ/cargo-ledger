@@ -2,6 +2,11 @@
 name = "cargo-ledger"
 version = "1.0.0"
 authors = ["yhql"]
+description = "Build and sideload Ledger Nano apps"
+categories = ["development-tools::cargo-plugins"]
+repository = "https://github.com/LedgerHQ/cargo-ledger"
+readme = "README.md"
+license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
