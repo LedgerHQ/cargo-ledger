@@ -73,7 +73,7 @@ struct NanosMetadata {
     name: Option<String>,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[clap(name = "Ledger NanoS load commands")]
 #[clap(version = "0.0")]
 #[clap(about = "Builds the project and emits a JSON manifest for ledgerctl.")]
@@ -113,7 +113,7 @@ enum SubCommand {
 }
 
 fn main() {
-    let cli: Cli = Cli::parse();
+    let cli = Cli::parse();
 
     let exe_path = match cli.use_prebuilt {
         None => {
