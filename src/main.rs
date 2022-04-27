@@ -29,7 +29,7 @@ fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
 
 fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
     let objcopy = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_OBJCOPY")
-        .unwrap_or("arm-none-eabi-objcopy".into());
+        .unwrap_or_else(|| "arm-none-eabi-objcopy".into());
 
     Command::new(objcopy)
         .arg(&elf_path)
@@ -39,7 +39,7 @@ fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
         .expect("Objcopy failed");
 
     let size = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_SIZE")
-        .unwrap_or("arm-none-eabi-size".into());
+        .unwrap_or_else(|| "arm-none-eabi-size".into());
 
     // print some size info while we're here
     let out = Command::new(size)
@@ -51,10 +51,10 @@ fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
     io::stderr().write_all(&out.stderr).unwrap();
 }
 
-fn install_with_ledgerctl(dir: &std::path::Path, app_json: &std::path::PathBuf) {
+fn install_with_ledgerctl(dir: &std::path::Path, app_json: &std::path::Path) {
     let out = Command::new("ledgerctl")
         .current_dir(dir)
-        .args(&["install", "-f", app_json.as_path().to_str().unwrap()])
+        .args(&["install", "-f", app_json.to_str().unwrap()])
         .output()
         .expect("fail");
 
@@ -93,7 +93,6 @@ struct Cli {
     #[clap(subcommand)]
     command: AlwaysPresentSubCommand,
 }
-
 
 #[derive(Parser, Debug)]
 enum AlwaysPresentSubCommand {
@@ -190,11 +189,13 @@ fn main() {
     serde_json::to_writer_pretty(file, &json).unwrap();
 
     match cli.command {
-        AlwaysPresentSubCommand::Ledger(subc) => { 
+        AlwaysPresentSubCommand::Ledger(subc) => {
             if let Some(SubCommand::Load) = subc.subcommand {
                 install_with_ledgerctl(current_dir, &app_json);
             }
-        },
-        AlwaysPresentSubCommand::Load => install_with_ledgerctl(current_dir, &app_json),
+        }
+        AlwaysPresentSubCommand::Load => {
+            install_with_ledgerctl(current_dir, &app_json)
+        }
     }
 }
