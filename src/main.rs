@@ -51,6 +51,17 @@ fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
     io::stderr().write_all(&out.stderr).unwrap();
 }
 
+fn install_with_ledgerctl(dir: &std::path::Path, app_json: &std::path::PathBuf) {
+    let out = Command::new("ledgerctl")
+        .current_dir(dir)
+        .args(&["install", "-f", app_json.as_path().to_str().unwrap()])
+        .output()
+        .expect("fail");
+
+    io::stdout().write_all(&out.stdout).unwrap();
+    io::stderr().write_all(&out.stderr).unwrap();
+}
+
 use serde_derive::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -80,10 +91,23 @@ struct Cli {
     hex_next_to_json: bool,
 
     #[clap(subcommand)]
-    command: Option<SubCommand>,
+    command: AlwaysPresentSubCommand,
 }
 
-#[derive(Parser)]
+
+#[derive(Parser, Debug)]
+enum AlwaysPresentSubCommand {
+    Ledger(SubCommandHelper),
+    Load,
+}
+
+#[derive(Parser, Debug)]
+struct SubCommandHelper {
+    #[clap(subcommand)]
+    subcommand: Option<SubCommand>,
+}
+
+#[derive(Parser, Debug)]
 enum SubCommand {
     /// Load the app onto a nano
     Load,
@@ -165,14 +189,12 @@ fn main() {
     });
     serde_json::to_writer_pretty(file, &json).unwrap();
 
-    if let Some(SubCommand::Load) = cli.command {
-        let out = Command::new("ledgerctl")
-            .current_dir(current_dir)
-            .args(&["install", "-f", app_json.as_path().to_str().unwrap()])
-            .output()
-            .expect("fail");
-
-        io::stdout().write_all(&out.stdout).unwrap();
-        io::stderr().write_all(&out.stderr).unwrap();
+    match cli.command {
+        AlwaysPresentSubCommand::Ledger(subc) => { 
+            if let Some(SubCommand::Load) = subc.subcommand {
+                install_with_ledgerctl(current_dir, &app_json);
+            }
+        },
+        AlwaysPresentSubCommand::Load => install_with_ledgerctl(current_dir, &app_json),
     }
 }
