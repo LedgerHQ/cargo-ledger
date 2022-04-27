@@ -134,24 +134,28 @@ fn main() {
                 }
             }
 
-            let _output =
-                cargo_cmd.wait().expect("Couldn't get cargo's exit status");
+            cargo_cmd.wait().expect("Couldn't get cargo's exit status");
 
             exe_path
         }
         Some(prebuilt) => prebuilt,
     };
 
+    // Fetch crate metadata without fetching dependencies
     let mut cmd = cargo_metadata::MetadataCommand::new();
     let res = cmd.no_deps().exec().unwrap();
 
+    // Fetch package.metadata.nanos section
     let this_pkg = res.packages.last().unwrap();
+    let metadata_value = this_pkg
+        .metadata
+        .get("nanos")
+        .expect("package.metadata.nanos section is missing in Cargo.toml")
+        .clone();
     let this_metadata: NanosMetadata =
-        serde_json::from_value(this_pkg.metadata["nanos"].clone()).unwrap();
+        serde_json::from_value(metadata_value).unwrap();
 
-    let current_dir = std::path::Path::new(&this_pkg.manifest_path)
-        .parent()
-        .unwrap();
+    let current_dir = this_pkg.manifest_path.parent().unwrap();
 
     let hex_file_abs = if cli.hex_next_to_json {
         current_dir
