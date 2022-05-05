@@ -29,7 +29,7 @@ fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
 
 fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
     let objcopy = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_OBJCOPY")
-        .unwrap_or("arm-none-eabi-objcopy".into());
+        .unwrap_or_else(|| "arm-none-eabi-objcopy".into());
 
     Command::new(objcopy)
         .arg(&elf_path)
@@ -39,13 +39,24 @@ fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
         .expect("Objcopy failed");
 
     let size = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_SIZE")
-        .unwrap_or("arm-none-eabi-size".into());
+        .unwrap_or_else(|| "arm-none-eabi-size".into());
 
     // print some size info while we're here
     let out = Command::new(size)
         .arg(&elf_path)
         .output()
         .expect("Size failed");
+
+    io::stdout().write_all(&out.stdout).unwrap();
+    io::stderr().write_all(&out.stderr).unwrap();
+}
+
+fn install_with_ledgerctl(dir: &std::path::Path, app_json: &std::path::Path) {
+    let out = Command::new("ledgerctl")
+        .current_dir(dir)
+        .args(&["install", "-f", app_json.to_str().unwrap()])
+        .output()
+        .expect("fail");
 
     io::stdout().write_all(&out.stdout).unwrap();
     io::stderr().write_all(&out.stderr).unwrap();
@@ -62,7 +73,7 @@ struct NanosMetadata {
     name: Option<String>,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[clap(name = "Ledger NanoS load commands")]
 #[clap(version = "0.0")]
 #[clap(about = "Builds the project and emits a JSON manifest for ledgerctl.")]
@@ -80,17 +91,29 @@ struct Cli {
     hex_next_to_json: bool,
 
     #[clap(subcommand)]
-    command: Option<SubCommand>,
+    command: AlwaysPresentSubCommand,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
+enum AlwaysPresentSubCommand {
+    Ledger(SubCommandHelper),
+    Load,
+}
+
+#[derive(Parser, Debug)]
+struct SubCommandHelper {
+    #[clap(subcommand)]
+    subcommand: Option<SubCommand>,
+}
+
+#[derive(Parser, Debug)]
 enum SubCommand {
     /// Load the app onto a nano
     Load,
 }
 
 fn main() {
-    let cli: Cli = Cli::parse();
+    let cli = Cli::parse();
 
     let exe_path = match cli.use_prebuilt {
         None => {
@@ -111,24 +134,28 @@ fn main() {
                 }
             }
 
-            let _output =
-                cargo_cmd.wait().expect("Couldn't get cargo's exit status");
+            cargo_cmd.wait().expect("Couldn't get cargo's exit status");
 
             exe_path
         }
         Some(prebuilt) => prebuilt,
     };
 
+    // Fetch crate metadata without fetching dependencies
     let mut cmd = cargo_metadata::MetadataCommand::new();
     let res = cmd.no_deps().exec().unwrap();
 
+    // Fetch package.metadata.nanos section
     let this_pkg = res.packages.last().unwrap();
+    let metadata_value = this_pkg
+        .metadata
+        .get("nanos")
+        .expect("package.metadata.nanos section is missing in Cargo.toml")
+        .clone();
     let this_metadata: NanosMetadata =
-        serde_json::from_value(this_pkg.metadata["nanos"].clone()).unwrap();
+        serde_json::from_value(metadata_value).unwrap();
 
-    let current_dir = std::path::Path::new(&this_pkg.manifest_path)
-        .parent()
-        .unwrap();
+    let current_dir = this_pkg.manifest_path.parent().unwrap();
 
     let hex_file_abs = if cli.hex_next_to_json {
         current_dir
@@ -165,14 +192,14 @@ fn main() {
     });
     serde_json::to_writer_pretty(file, &json).unwrap();
 
-    if let Some(SubCommand::Load) = cli.command {
-        let out = Command::new("ledgerctl")
-            .current_dir(current_dir)
-            .args(&["install", "-f", app_json.as_path().to_str().unwrap()])
-            .output()
-            .expect("fail");
-
-        io::stdout().write_all(&out.stdout).unwrap();
-        io::stderr().write_all(&out.stderr).unwrap();
+    match cli.command {
+        AlwaysPresentSubCommand::Ledger(subc) => {
+            if let Some(SubCommand::Load) = subc.subcommand {
+                install_with_ledgerctl(current_dir, &app_json);
+            }
+        }
+        AlwaysPresentSubCommand::Load => {
+            install_with_ledgerctl(current_dir, &app_json)
+        }
     }
 }
