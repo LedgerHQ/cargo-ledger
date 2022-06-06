@@ -1,68 +1,18 @@
 use cargo_metadata::Message;
-use clap::Parser;
-use std::process::{Command, Stdio};
+use clap::{ArgEnum, Parser, Subcommand};
+use std::process::Command;
 
 use std::env;
 use std::fs;
-use std::io;
-use std::io::Write;
+use std::path::Path;
+use std::process::Stdio;
 
 use serde_json::json;
 
-fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
-    let buffer = fs::read(&file)?;
-    let elf = goblin::elf::Elf::parse(&buffer).unwrap();
-
-    let mut nvram_data = 0;
-    let mut envram_data = 0;
-    for s in elf.syms.iter() {
-        let symbol_name = elf.strtab.get(s.st_name);
-        let name = symbol_name.unwrap().unwrap();
-        match name {
-            "_nvram_data" => nvram_data = s.st_value,
-            "_envram_data" => envram_data = s.st_value,
-            _ => (),
-        }
-    }
-    Ok(envram_data - nvram_data)
-}
-
-fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
-    let objcopy = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_OBJCOPY")
-        .unwrap_or_else(|| "arm-none-eabi-objcopy".into());
-
-    Command::new(objcopy)
-        .arg(&elf_path)
-        .arg(&dest_bin)
-        .args(&["-O", "ihex"])
-        .output()
-        .expect("Objcopy failed");
-
-    let size = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_SIZE")
-        .unwrap_or_else(|| "arm-none-eabi-size".into());
-
-    // print some size info while we're here
-    let out = Command::new(size)
-        .arg(&elf_path)
-        .output()
-        .expect("Size failed");
-
-    io::stdout().write_all(&out.stdout).unwrap();
-    io::stderr().write_all(&out.stderr).unwrap();
-}
-
-fn install_with_ledgerctl(dir: &std::path::Path, app_json: &std::path::Path) {
-    let out = Command::new("ledgerctl")
-        .current_dir(dir)
-        .args(&["install", "-f", app_json.to_str().unwrap()])
-        .output()
-        .expect("fail");
-
-    io::stdout().write_all(&out.stdout).unwrap();
-    io::stderr().write_all(&out.stderr).unwrap();
-}
+mod utils;
 
 use serde_derive::Deserialize;
+use utils::*;
 
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
@@ -91,34 +41,69 @@ struct Cli {
     hex_next_to_json: bool,
 
     #[clap(subcommand)]
-    command: AlwaysPresentSubCommand,
+    command: MainCommand,
 }
 
-#[derive(Parser, Debug)]
-enum AlwaysPresentSubCommand {
-    Ledger(SubCommandHelper),
-    Load,
+#[derive(ArgEnum, Clone, Debug)]
+enum Device {
+    Nanos,
+    Nanox,
+    Nanosplus,
 }
 
-#[derive(Parser, Debug)]
-struct SubCommandHelper {
-    #[clap(subcommand)]
-    subcommand: Option<SubCommand>,
+impl From<Device> for &str {
+    fn from(device: Device) -> &'static str {
+        match device {
+            Device::Nanos => "nanos",
+            Device::Nanox => "nanox",
+            Device::Nanosplus => "nanosplus",
+        }
+    }
 }
 
-#[derive(Parser, Debug)]
-enum SubCommand {
-    /// Load the app onto a nano
-    Load,
+#[derive(Subcommand, Debug)]
+enum MainCommand {
+    Ledger {
+        #[clap(arg_enum)]
+        device: Device,
+        #[clap(short, long)]
+        load: bool,
+        #[clap(last = true)]
+        remaining_args: Vec<String>,
+    },
 }
 
 fn main() {
     let cli = Cli::parse();
 
+    let ledger_target_path = match env::var("LEDGER_TARGETS") {
+        Ok(path) => path,
+        Err(_) => String::new(),
+    };
+
+    let (device, is_load, remaining_args) = match cli.command {
+        MainCommand::Ledger {
+            device: d,
+            load: a,
+            remaining_args: r,
+        } => (d, a, r),
+    };
+
+    let device_str = <Device as Into<&str>>::into(device);
+    let device_json = format!("{}.json", &device_str);
+    let device_json_path = Path::new(&ledger_target_path).join(&device_json);
     let exe_path = match cli.use_prebuilt {
         None => {
             let mut cargo_cmd = Command::new("cargo")
-                .args(&["build", "--release", "--message-format=json"])
+                .args(&[
+                    "build",
+                    "--release",
+                    "-Zbuild-std=core",
+                    "-Zbuild-std-features=compiler-builtins-mem",
+                    format!("--target={}", device_json_path.display()).as_str(),
+                    "--message-format=json",
+                ])
+                .args(&remaining_args)
                 .stdout(Stdio::piped())
                 .spawn()
                 .unwrap();
@@ -167,7 +152,8 @@ fn main() {
     export_binary(&exe_path, &hex_file_abs);
 
     // app.json will be placed in the app's root directory
-    let app_json = current_dir.join("app.json");
+    let app_json_name = format!("app_{}.json", &device_str);
+    let app_json = current_dir.join(app_json_name);
 
     // Find hex file path relative to 'app.json'
     let hex_file = hex_file_abs.strip_prefix(current_dir).unwrap();
@@ -177,11 +163,17 @@ fn main() {
 
     // create manifest
     let file = fs::File::create(&app_json).unwrap();
+    let targetid = match device_str {
+        "nanos" => "0x31100004",
+        "nanox" => "0x33000004",
+        "nanosplus" => "0x33100004",
+        _ => panic!("Unknown device."),
+    };
     let json = json!({
         "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
         "icon": &this_metadata.icon,
-        "targetId": "0x31100004",
+        "targetId": targetid,
         "flags": this_metadata.flags,
         "derivationPath": {
             "curves": [ this_metadata.curve ],
@@ -192,14 +184,7 @@ fn main() {
     });
     serde_json::to_writer_pretty(file, &json).unwrap();
 
-    match cli.command {
-        AlwaysPresentSubCommand::Ledger(subc) => {
-            if let Some(SubCommand::Load) = subc.subcommand {
-                install_with_ledgerctl(current_dir, &app_json);
-            }
-        }
-        AlwaysPresentSubCommand::Load => {
-            install_with_ledgerctl(current_dir, &app_json)
-        }
+    if is_load {
+        install_with_ledgerctl(current_dir, &app_json);
     }
 }
