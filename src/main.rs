@@ -20,6 +20,7 @@ struct NanosMetadata {
     path: String,
     flags: String,
     icon: String,
+    icon_small: String,
     name: Option<String>,
 }
 
@@ -161,18 +162,20 @@ fn main() {
     // Retrieve real 'dataSize' from ELF
     let data_size = retrieve_data_size(&exe_path).unwrap();
 
-    // create manifest
-    let file = fs::File::create(&app_json).unwrap();
-    let targetid = match device_str {
-        "nanos" => "0x31100004",
-        "nanox" => "0x33000004",
-        "nanosplus" => "0x33100004",
+    // Pick icon and targetid according to target
+    let (targetid, icon) = match device_str {
+        "nanos" => ("0x31100004", &this_metadata.icon),
+        "nanox" => ("0x33000004", &this_metadata.icon_small),
+        "nanosplus" => ("0x33100004", &this_metadata.icon_small),
         _ => panic!("Unknown device."),
     };
+
+    // create manifest
+    let file = fs::File::create(&app_json).unwrap();
     let json = json!({
         "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
-        "icon": &this_metadata.icon,
+        "icon": icon,
         "targetId": targetid,
         "flags": this_metadata.flags,
         "derivationPath": {
