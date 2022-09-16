@@ -69,6 +69,8 @@ enum MainCommand {
         device: Device,
         #[clap(short, long)]
         load: bool,
+        #[clap(short, long)]
+        speculos: bool,
         #[clap(last = true)]
         remaining_args: Vec<String>,
     },
@@ -82,12 +84,13 @@ fn main() {
         Err(_) => String::new(),
     };
 
-    let (device, is_load, remaining_args) = match cli.command {
+    let (device, is_load, is_speculos, remaining_args) = match cli.command {
         MainCommand::Ledger {
             device: d,
             load: a,
+            speculos: s,
             remaining_args: r,
-        } => (d, a, r),
+        } => (d, a, s, r),
     };
 
     let device_str = <Device as Into<&str>>::into(device);
@@ -189,5 +192,9 @@ fn main() {
 
     if is_load {
         install_with_ledgerctl(current_dir, &app_json);
+    }
+
+    if is_speculos {
+        run_in_speculos(current_dir, &exe_path);
     }
 }
