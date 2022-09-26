@@ -195,6 +195,6 @@ fn main() {
     }
 
     if is_speculos {
-        run_in_speculos(current_dir, &exe_path);
+        run_in_speculos(current_dir, &device_str, &exe_path);
     }
 }
