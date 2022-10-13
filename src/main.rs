@@ -4,6 +4,7 @@ use std::process::Command;
 
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::process::Stdio;
 
@@ -110,13 +111,21 @@ fn main() {
                 .unwrap();
 
             let mut exe_path = std::path::PathBuf::new();
+            let out = cargo_cmd.stdout.take().unwrap();
             let reader =
-                std::io::BufReader::new(cargo_cmd.stdout.take().unwrap());
+                std::io::BufReader::new(out);
             for message in cargo_metadata::Message::parse_stream(reader) {
-                if let Message::CompilerArtifact(artifact) = message.unwrap() {
-                    if let Some(n) = artifact.executable {
-                        exe_path = n;
+                match message.as_ref().unwrap() {
+                    Message::CompilerArtifact(artifact) => {
+                        if let Some(n) = &artifact.executable {
+                            exe_path = n.to_path_buf();
+                        }
                     }
+                    Message::CompilerMessage(message) => {
+                        println!("{}", message);
+                    }
+                    _ => ()
+ 
                 }
             }
 
