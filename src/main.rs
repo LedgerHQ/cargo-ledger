@@ -103,7 +103,7 @@ fn main() {
                     "-Zbuild-std=core",
                     "-Zbuild-std-features=compiler-builtins-mem",
                     format!("--target={}", device_json_path.display()).as_str(),
-                    "--message-format=json",
+                    "--message-format=json-diagnostic-rendered-ansi",
                 ])
                 .args(&remaining_args)
                 .stdout(Stdio::piped())
