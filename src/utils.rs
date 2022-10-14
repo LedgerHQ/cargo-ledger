@@ -5,7 +5,7 @@ use std::io::Write;
 use std::process::Command;
 
 pub fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
-    let buffer = fs::read(&file)?;
+    let buffer = fs::read(file)?;
     let elf = goblin::elf::Elf::parse(&buffer).unwrap();
 
     let mut nvram_data = 0;
@@ -27,9 +27,9 @@ pub fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
         .unwrap_or_else(|| "arm-none-eabi-objcopy".into());
 
     Command::new(objcopy)
-        .arg(&elf_path)
-        .arg(&dest_bin)
-        .args(&["-O", "ihex"])
+        .arg(elf_path)
+        .arg(dest_bin)
+        .args(["-O", "ihex"])
         .output()
         .expect("Objcopy failed");
 
@@ -38,7 +38,7 @@ pub fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
 
     // print some size info while we're here
     let out = Command::new(size)
-        .arg(&elf_path)
+        .arg(elf_path)
         .output()
         .expect("Size failed");
 
@@ -52,7 +52,7 @@ pub fn install_with_ledgerctl(
 ) {
     let out = Command::new("ledgerctl")
         .current_dir(dir)
-        .args(&["install", "-f", app_json.to_str().unwrap()])
+        .args(["install", "-f", app_json.to_str().unwrap()])
         .output()
         .expect("fail");
 
