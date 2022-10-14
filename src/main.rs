@@ -4,7 +4,6 @@ use std::process::Command;
 
 use std::env;
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 use std::process::Stdio;
 
@@ -97,7 +96,7 @@ fn main() {
     let exe_path = match cli.use_prebuilt {
         None => {
             let mut cargo_cmd = Command::new("cargo")
-                .args(&[
+                .args([
                     "build",
                     "--release",
                     "-Zbuild-std=core",
@@ -112,8 +111,7 @@ fn main() {
 
             let mut exe_path = std::path::PathBuf::new();
             let out = cargo_cmd.stdout.take().unwrap();
-            let reader =
-                std::io::BufReader::new(out);
+            let reader = std::io::BufReader::new(out);
             for message in cargo_metadata::Message::parse_stream(reader) {
                 match message.as_ref().unwrap() {
                     Message::CompilerArtifact(artifact) => {
@@ -124,8 +122,7 @@ fn main() {
                     Message::CompilerMessage(message) => {
                         println!("{}", message);
                     }
-                    _ => ()
- 
+                    _ => (),
                 }
             }
 
