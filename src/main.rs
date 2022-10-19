@@ -16,8 +16,8 @@ use utils::*;
 
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
-    curve: String,
-    path: String,
+    curve: Vec<String>,
+    path: Vec<String>,
     flags: String,
     icon: String,
     icon_small: String,
