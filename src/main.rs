@@ -179,8 +179,8 @@ fn main() {
         "targetId": targetid,
         "flags": this_metadata.flags,
         "derivationPath": {
-            "curves": [ this_metadata.curve ],
-            "paths": [ this_metadata.path ]
+            "curves": this_metadata.curve,
+            "paths": this_metadata.path
         },
         "binary": hex_file,
         "dataSize": data_size
