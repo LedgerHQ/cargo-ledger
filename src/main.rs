@@ -120,7 +120,7 @@ fn main() {
                         }
                     }
                     Message::CompilerMessage(message) => {
-                        println!("{}", message);
+                        println!("{message}");
                     }
                     _ => (),
                 }
