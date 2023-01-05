@@ -168,6 +168,17 @@ fn main() {
     // Retrieve real 'dataSize' from ELF
     let data_size = retrieve_data_size(&exe_path).unwrap();
 
+    // Modify flags to enable BLE if targetting Nano X
+    let flags = match device_str {
+        "nanos" | "nanosplus" => this_metadata.flags,
+        "nanox" => {
+            let base = u32::from_str_radix(this_metadata.flags.as_str(), 16)
+                .unwrap_or(0);
+            format!("0x{:x}", base | 0x200)
+        }
+        _ => panic!("Unknown device."),
+    };
+
     // Pick icon and targetid according to target
     let (targetid, icon) = match device_str {
         "nanos" => ("0x31100004", &this_metadata.icon),
@@ -183,7 +194,7 @@ fn main() {
         "version": &this_pkg.version,
         "icon": icon,
         "targetId": targetid,
-        "flags": this_metadata.flags,
+        "flags": flags,
         "derivationPath": {
             "curves": this_metadata.curve,
             "paths": this_metadata.path
