@@ -59,3 +59,27 @@ pub fn install_with_ledgerctl(
     io::stdout().write_all(&out.stdout).unwrap();
     io::stderr().write_all(&out.stderr).unwrap();
 }
+
+pub fn run_in_speculos(
+    dir: &std::path::Path,
+    model: &str,
+    exe_path: &std::path::Path,
+) {
+    println!("{}", exe_path.to_str().unwrap());
+    let out = Command::new("speculos.py")
+        .current_dir(dir)
+        .args(&[
+            "--model",
+            model,
+            "--display",
+            "qt",
+            "-k",
+            "2.0",
+            exe_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("fail");
+
+    io::stdout().write_all(&out.stdout).unwrap();
+    io::stderr().write_all(&out.stderr).unwrap();
+}
