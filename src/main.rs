@@ -2,7 +2,6 @@ use cargo_metadata::Message;
 use clap::{ArgEnum, Parser, Subcommand};
 use std::process::Command;
 
-use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Stdio;
@@ -53,9 +52,9 @@ enum Device {
     Nanosplus,
 }
 
-impl From<Device> for &str {
-    fn from(device: Device) -> &'static str {
-        match device {
+impl AsRef<str> for Device {
+    fn as_ref(&self) -> &str {
+        match self {
             Device::Nanos => "nanos",
             Device::Nanox => "nanox",
             Device::Nanosplus => "nanosplus",
@@ -113,11 +112,6 @@ fn main() {
 
     let cli = Cli::parse();
 
-    let ledger_target_path = match env::var("LEDGER_TARGETS") {
-        Ok(path) => path,
-        Err(_) => String::new(),
-    };
-
     let (device, is_load, remaining_args) = match cli.command {
         MainCommand::Ledger {
             device: d,
@@ -126,9 +120,6 @@ fn main() {
         } => (d, a, r),
     };
 
-    let device_str = <Device as Into<&str>>::into(device.clone());
-    let device_json = format!("{}.json", &device_str);
-    let device_json_path = Path::new(&ledger_target_path).join(&device_json);
     let exe_path = match cli.use_prebuilt {
         None => {
             let mut cargo_cmd = Command::new("cargo")
@@ -137,7 +128,7 @@ fn main() {
                     "--release",
                     "-Zbuild-std=core",
                     "-Zbuild-std-features=compiler-builtins-mem",
-                    format!("--target={}", device_json_path.display()).as_str(),
+                    format!("--target={}", device.as_ref()).as_str(),
                     "--message-format=json-diagnostic-rendered-ansi",
                 ])
                 .args(&remaining_args)
@@ -195,7 +186,7 @@ fn main() {
     export_binary(&exe_path, &hex_file_abs);
 
     // app.json will be placed in the app's root directory
-    let app_json_name = format!("app_{}.json", &device_str);
+    let app_json_name = format!("app_{}.json", device.as_ref());
     let app_json = current_dir.join(app_json_name);
 
     // Find hex file path relative to 'app.json'
@@ -205,22 +196,20 @@ fn main() {
     let data_size = retrieve_data_size(&exe_path).unwrap();
 
     // Modify flags to enable BLE if targetting Nano X
-    let flags = match device_str {
-        "nanos" | "nanosplus" => this_metadata.flags,
-        "nanox" => {
+    let flags = match device {
+        Device::Nanos | Device::Nanosplus => this_metadata.flags,
+        Device::Nanox => {
             let base = u32::from_str_radix(this_metadata.flags.as_str(), 16)
                 .unwrap_or(0);
             format!("0x{:x}", base | 0x200)
         }
-        _ => panic!("Unknown device."),
     };
 
     // Pick icon and targetid according to target
-    let (targetid, icon) = match device_str {
-        "nanos" => ("0x31100004", &this_metadata.icon),
-        "nanox" => ("0x33000004", &this_metadata.icon_small),
-        "nanosplus" => ("0x33100004", &this_metadata.icon_small),
-        _ => panic!("Unknown device."),
+    let (targetid, icon) = match device {
+        Device::Nanos => ("0x31100004", &this_metadata.icon),
+        Device::Nanox => ("0x33000004", &this_metadata.icon_small),
+        Device::Nanosplus => ("0x33100004", &this_metadata.icon_small),
     };
 
     // create manifest
