@@ -23,12 +23,6 @@ cargo install --path .
 Note that `cargo`'s dependency resolver may behave differently when installing, and you may end up with errors.
 In order to fix those and force usage of the versions specified in the tagged `Cargo.lock`, append `--locked` to the above commands.
 
-### Setting up custom targets
-
-The preferred method is to have all custom target files (`nanos.json`, `nanox.json` and `nanosplus.json`) in a separate folder, and set an environment variable called `LEDGER_TARGETS` pointing to this folder.
-
-`cargo ledger` will check for this environment variable (or default to "" if it is empty) to fetch the current target specification.
-
 ## Usage
 
 
@@ -38,7 +32,9 @@ cargo ledger nanox
 cargo ledger nanosplus
 ```
 
-Loading can optionally be performed by appending `--load` or `-l` to the command.
+This command uses custom targets that are present in the Rust SDK. `cargo-ledger` will download them automatically if they are not present.
+
+Loading on device can optionally be performed by appending `--load` or `-l` to the command.
 
 By default, this program will attempt to build the current program with in `release` mode (full command: `cargo build -Zbuild-std -Zbuild-std-features=compiler-builtins-mem --release --target=nanos.json --message-format=json`)
 
