@@ -130,7 +130,7 @@ fn main() {
 
             exe_path
         }
-        Some(prebuilt) => prebuilt,
+        Some(prebuilt) => prebuilt.canonicalize().unwrap(),
     };
 
     // Fetch crate metadata without fetching dependencies
@@ -168,7 +168,7 @@ fn main() {
     // Retrieve real 'dataSize' from ELF
     let data_size = retrieve_data_size(&exe_path).unwrap();
 
-    // Modify flags to enable BLE if targetting Nano X
+    // Modify flags to enable BLE if targeting Nano X
     let flags = match device_str {
         "nanos" | "nanosplus" => this_metadata.flags,
         "nanox" => {
