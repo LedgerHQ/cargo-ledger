@@ -141,7 +141,7 @@ fn main() {
     let this_pkg = res.packages.last().unwrap();
     let metadata_value = this_pkg
         .metadata
-        .get("nanos")
+        .get(device_str)
         .expect("package.metadata.nanos section is missing in Cargo.toml")
         .clone();
     let this_metadata: NanosMetadata =
