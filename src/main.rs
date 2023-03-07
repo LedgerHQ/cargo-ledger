@@ -16,6 +16,7 @@ use utils::*;
 
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
+    api_level: String,
     curve: Vec<String>,
     path: Vec<String>,
     flags: String,
@@ -199,6 +200,7 @@ fn main() {
             "curves": this_metadata.curve,
             "paths": this_metadata.path
         },
+        "apiLevel": this_metadata.api_level,
         "binary": hex_file,
         "dataSize": data_size
     });
