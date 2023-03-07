@@ -50,11 +50,19 @@ pub fn install_with_ledgerctl(
     dir: &std::path::Path,
     app_json: &std::path::Path,
 ) {
-    let out = Command::new("ledgerctl")
-        .current_dir(dir)
-        .args(["install", "-f", app_json.to_str().unwrap()])
-        .output()
-        .expect("fail");
+    let out = if cfg!(target_os = "macos") {
+        Command::new("python3")
+            .current_dir(dir)
+            .args(["-m", "ledgerctl", "install", "-f", app_json.to_str().unwrap()])
+            .output()
+            .expect("fail")
+    } else {
+        Command::new("ledgerctl")
+            .current_dir(dir)
+            .args(["install", "-f", app_json.to_str().unwrap()])
+            .output()
+            .expect("fail")
+    };
 
     io::stdout().write_all(&out.stdout).unwrap();
     io::stderr().write_all(&out.stderr).unwrap();
