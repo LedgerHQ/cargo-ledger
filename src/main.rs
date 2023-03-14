@@ -16,6 +16,7 @@ use utils::*;
 
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
+    api_level: Option<String>,
     curve: Vec<String>,
     path: Vec<String>,
     flags: String,
@@ -90,7 +91,7 @@ fn main() {
         } => (d, a, r),
     };
 
-    let device_str = <Device as Into<&str>>::into(device);
+    let device_str = <Device as Into<&str>>::into(device.clone());
     let device_json = format!("{}.json", &device_str);
     let device_json_path = Path::new(&ledger_target_path).join(&device_json);
     let exe_path = match cli.use_prebuilt {
@@ -189,7 +190,7 @@ fn main() {
 
     // create manifest
     let file = fs::File::create(&app_json).unwrap();
-    let json = json!({
+    let mut json = json!({
         "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
         "icon": icon,
@@ -202,6 +203,11 @@ fn main() {
         "binary": hex_file,
         "dataSize": data_size
     });
+    // Ignore apiLevel for Nano S as it is unsupported for now
+    match device {
+        Device::Nanos => (),
+        _ => json["apiLevel"] = serde_json::Value::String(this_metadata.api_level.expect("Missing field"))
+    }
     serde_json::to_writer_pretty(file, &json).unwrap();
 
     if is_load {
