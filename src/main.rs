@@ -190,20 +190,38 @@ fn main() {
 
     // create manifest
     let file = fs::File::create(&app_json).unwrap();
-    let json = json!({
-        "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
-        "version": &this_pkg.version,
-        "icon": icon,
-        "targetId": targetid,
-        "flags": flags,
-        "derivationPath": {
-            "curves": this_metadata.curve,
-            "paths": this_metadata.path
-        },
-        "apiLevel": this_metadata.api_level,
-        "binary": hex_file,
-        "dataSize": data_size
-    });
+    let json =
+    match device_str {
+        "nanox" | "nanosplus" => json!({
+                "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
+                "version": &this_pkg.version,
+                "icon": icon,
+                "targetId": targetid,
+                "flags": flags,
+                "derivationPath": {
+                    "curves": this_metadata.curve,
+                    "paths": this_metadata.path
+                },
+                "apiLevel": this_metadata.api_level,
+                "binary": hex_file,
+                "dataSize": data_size
+            }),
+        "nanos" => json!({
+            "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
+            "version": &this_pkg.version,
+            "icon": icon,
+            "targetId": targetid,
+            "flags": flags,
+            "derivationPath": {
+                "curves": this_metadata.curve,
+                "paths": this_metadata.path
+            },
+            "binary": hex_file,
+            "dataSize": data_size
+        }),
+        _ => panic!("Unknown device."),
+    };
+
     serde_json::to_writer_pretty(file, &json).unwrap();
 
     if is_load {
