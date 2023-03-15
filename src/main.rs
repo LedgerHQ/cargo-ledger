@@ -16,7 +16,7 @@ use utils::*;
 
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
-    api_level: String,
+    api_level: Option<String>,
     curve: Vec<String>,
     path: Vec<String>,
     flags: String,
@@ -35,10 +35,10 @@ struct Cli {
     use_prebuilt: Option<std::path::PathBuf>,
 
     #[clap(long)]
-    #[clap(help = concat!(
-        "Should the app.hex be placed next to the app.json, or next to the input exe?",
-        " ",
-        "Typically used with --use-prebuilt when the input exe is in a read-only location.",
+    #[clap(help = concat ! (
+    "Should the app.hex be placed next to the app.json, or next to the input exe?",
+    " ",
+    "Typically used with --use-prebuilt when the input exe is in a read-only location.",
     ))]
     hex_next_to_json: bool,
 
@@ -91,7 +91,7 @@ fn main() {
         } => (d, a, r),
     };
 
-    let device_str = <Device as Into<&str>>::into(device);
+    let device_str = <Device as Into<&str>>::into(device.clone());
     let device_json = format!("{}.json", &device_str);
     let device_json_path = Path::new(&ledger_target_path).join(&device_json);
     let exe_path = match cli.use_prebuilt {
@@ -155,7 +155,7 @@ fn main() {
     } else {
         exe_path.parent().unwrap()
     }
-    .join("app.hex");
+        .join("app.hex");
 
     export_binary(&exe_path, &hex_file_abs);
 
@@ -190,23 +190,7 @@ fn main() {
 
     // create manifest
     let file = fs::File::create(&app_json).unwrap();
-    let json =
-    match device_str {
-        "nanox" | "nanosplus" => json!({
-                "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
-                "version": &this_pkg.version,
-                "icon": icon,
-                "targetId": targetid,
-                "flags": flags,
-                "derivationPath": {
-                    "curves": this_metadata.curve,
-                    "paths": this_metadata.path
-                },
-                "apiLevel": this_metadata.api_level,
-                "binary": hex_file,
-                "dataSize": data_size
-            }),
-        "nanos" => json!({
+    let mut json = json!({
             "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
             "version": &this_pkg.version,
             "icon": icon,
@@ -218,10 +202,12 @@ fn main() {
             },
             "binary": hex_file,
             "dataSize": data_size
-        }),
-        _ => panic!("Unknown device."),
-    };
-
+        });
+    // Ignore apiLevel for Nano S as it is unsupported for now
+    match device {
+        Device::Nanos => (),
+        _ => json["apiLevel"] = serde_json::Value::String(this_metadata.api_level.expect("Missing field 'api_level'")),
+    }
     serde_json::to_writer_pretty(file, &json).unwrap();
 
     if is_load {
