@@ -1,16 +1,17 @@
 use cargo_metadata::Message;
-use clap::{ArgEnum, Parser, Subcommand};
-use std::process::Command;
-
+use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
+use std::process::Command;
 use std::process::Stdio;
 
 use serde_json::json;
 
+mod setup;
 mod utils;
 
 use serde_derive::Deserialize;
+use setup::install_targets;
 use utils::*;
 
 #[derive(Debug, Deserialize)]
@@ -25,10 +26,17 @@ struct NanosMetadata {
 }
 
 #[derive(Parser, Debug)]
-#[clap(name = "Ledger NanoS load commands")]
+#[command(name = "cargo")]
+#[command(bin_name = "cargo")]
+#[clap(name = "Ledger devices build and load commands")]
 #[clap(version = "0.0")]
 #[clap(about = "Builds the project and emits a JSON manifest for ledgerctl.")]
-struct Cli {
+enum Cli {
+    Ledger(CliArgs),
+}
+
+#[derive(clap::Args, Debug)]
+struct CliArgs {
     #[clap(long)]
     #[clap(value_name = "prebuilt ELF exe")]
     use_prebuilt: Option<std::path::PathBuf>,
@@ -45,7 +53,7 @@ struct Cli {
     command: MainCommand,
 }
 
-#[derive(ArgEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug)]
 enum Device {
     Nanos,
     Nanox,
@@ -64,10 +72,15 @@ impl AsRef<str> for Device {
 
 #[derive(Subcommand, Debug)]
 enum MainCommand {
-    Ledger {
-        #[clap(arg_enum)]
+    #[clap(about = "install custom target files")]
+    Setup,
+    #[clap(about = "build the project for a given device")]
+    Build {
+        #[clap(value_enum)]
+        #[clap(help = "device to build for")]
         device: Device,
         #[clap(short, long)]
+        #[clap(help = "load on a device")]
         load: bool,
         #[clap(last = true)]
         remaining_args: Vec<String>,
@@ -75,59 +88,33 @@ enum MainCommand {
 }
 
 fn main() {
-    // Check if target files are installed
-    let sysroot_cmd = Command::new("rustc")
-        .arg("--print")
-        .arg("sysroot")
-        .output()
-        .expect("failed to call rustc")
-        .stdout;
-    let sysroot_cmd = std::str::from_utf8(&sysroot_cmd).unwrap().trim();
+    let Cli::Ledger(cli) = Cli::parse();
 
-    let target_files_url = Path::new(
-        "https://raw.githubusercontent.com/LedgerHQ/ledger-nanos-sdk/master/",
-    );
-    let sysroot = Path::new(sysroot_cmd).join("lib").join("rustlib");
-
-    // Retrieve each target file independently
-    // TODO: handle target.json modified upstream
-    for target in &["nanos", "nanox", "nanosplus"] {
-        let outfilepath = sysroot.join(target).join("target.json");
-        if !outfilepath.exists() {
-            let targetpath =
-                outfilepath.clone().into_os_string().into_string().unwrap();
-            println!("* Adding \x1b[1;32m{target}\x1b[0m in \x1b[1;33m{targetpath}\x1b[0m");
-
-            let target_url = target_files_url.join(format!("{target}.json"));
-            let cmd = Command::new("curl")
-                .arg(target_url)
-                .arg("-o")
-                .arg(outfilepath)
-                .arg("--create-dirs")
-                .output()
-                .expect("failed to execute 'curl'");
-            println!("{}", std::str::from_utf8(&cmd.stderr).unwrap());
-        }
-    }
-
-    let cli = Cli::parse();
-
-    let (device, is_load, remaining_args) = match cli.command {
-        MainCommand::Ledger {
+    match cli.command {
+        MainCommand::Setup => install_targets(),
+        MainCommand::Build {
             device: d,
             load: a,
             remaining_args: r,
-        } => (d, a, r),
-    };
+        } => {
+            build_app(d, a, cli.use_prebuilt, cli.hex_next_to_json, r);
+        }
+    }
+}
 
-    let exe_path = match cli.use_prebuilt {
+fn build_app(
+    device: Device,
+    is_load: bool,
+    use_prebuilt: Option<PathBuf>,
+    hex_next_to_json: bool,
+    remaining_args: Vec<String>,
+) {
+    let exe_path = match use_prebuilt {
         None => {
             let mut cargo_cmd = Command::new("cargo")
                 .args([
                     "build",
                     "--release",
-                    "-Zbuild-std=core",
-                    "-Zbuild-std-features=compiler-builtins-mem",
                     format!("--target={}", device.as_ref()).as_str(),
                     "--message-format=json-diagnostic-rendered-ansi",
                 ])
@@ -176,7 +163,7 @@ fn main() {
 
     let current_dir = this_pkg.manifest_path.parent().unwrap();
 
-    let hex_file_abs = if cli.hex_next_to_json {
+    let hex_file_abs = if hex_next_to_json {
         current_dir
     } else {
         exe_path.parent().unwrap()
@@ -230,7 +217,11 @@ fn main() {
     // Ignore apiLevel for Nano S as it is unsupported for now
     match device {
         Device::Nanos => (),
-        _ => json["apiLevel"] = serde_json::Value::String(this_metadata.api_level.expect("Missing field"))
+        _ => {
+            json["apiLevel"] = serde_json::Value::String(
+                this_metadata.api_level.expect("Missing field"),
+            )
+        }
     }
     serde_json::to_writer_pretty(file, &json).unwrap();
 
