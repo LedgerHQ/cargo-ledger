@@ -117,6 +117,19 @@ enum MainCommand {
     },
 }
 
+enum Back {
+    Speculos(Comm::<backend::SpeculosBackend>),
+    Hid(Comm::<backend::HidBackend>)
+}
+
+impl Back {
+    fn exchange_apdu(&mut self, apdu: &[u8]) {
+        match self {
+            Back::Speculos(x) => x.exchange_apdu(apdu),
+            Back::Hid(x) => x.exchange_apdu(apdu),
+        };
+    }
+}
 
 fn main() {
     let Cli::Ledger(cli) = Cli::parse();
@@ -140,13 +153,12 @@ fn main() {
                     let mut buf: String = String::new();
                     file.read_to_string(&mut buf);
 
-
                     let mut comm = match b {
                         Backend::Speculos => {
-                            Comm::<backend::SpeculosBackend>::create() 
+                            Back::Speculos(Comm::<backend::SpeculosBackend>::create())
                         }
                         Backend::Hid => {
-                            Comm::<backend::HidBackend>::create()
+                            Back::Hid(Comm::<backend::HidBackend>::create())
                         }
                     };
 

@@ -2,7 +2,7 @@ mod speculos;
 mod hid;
 mod interface;
 
-pub use interface::Backend;
+use interface::Backend;
 pub use speculos::SpeculosBackend;
 pub use hid::HidBackend;
 
