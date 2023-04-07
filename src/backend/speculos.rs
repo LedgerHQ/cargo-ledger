@@ -13,11 +13,13 @@ pub struct SpeculosBackend {
     pub stream: Option<TcpStream>
 }
 
-impl Backend for SpeculosBackend {
-    fn new() -> Self {
+impl SpeculosBackend {
+    pub fn new() -> Self {
         SpeculosBackend { server: String::from(DEFAULT_SPECULOS_PROXY_ADDRESS), port: DEFAULT_SPECULOS_PROXY_PORT, stream: None }
     }
+}
 
+impl Backend for SpeculosBackend {
     fn open(&mut self) {
         if let Ok(stream) = TcpStream::connect((self.server.as_str(), self.port)) {
             self.stream = Some(stream);

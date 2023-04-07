@@ -17,7 +17,7 @@ mod backend;
 use serde_derive::Deserialize;
 use setup::install_targets;
 use utils::*;
-use backend::{ Comm };
+use backend::{ Comm, BackendType};
 
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
@@ -75,21 +75,6 @@ impl AsRef<str> for Device {
     }
 }
 
-#[derive(ValueEnum, Clone, Debug)]
-enum Backend {
-    Speculos,
-    Hid,
-}
-
-impl AsRef<str> for Backend {
-    fn as_ref(&self) -> &str {
-        match self {
-            Backend::Speculos => "speculos",
-            Backend::Hid => "hid"
-        }
-    }
-}
-
 
 #[derive(Subcommand, Debug)]
 enum MainCommand {
@@ -112,23 +97,9 @@ enum MainCommand {
         file: Option<std::path::PathBuf>,
         #[clap(value_enum)]
         #[clap(help = "backend to use")]
-        #[arg(default_value_t = Backend::Speculos)]
-        backend: Backend,
+        #[arg(default_value_t = BackendType::Speculos)]
+        backend: BackendType,
     },
-}
-
-enum Back {
-    Speculos(Comm::<backend::SpeculosBackend>),
-    Hid(Comm::<backend::HidBackend>)
-}
-
-impl Back {
-    fn exchange_apdu(&mut self, apdu: &[u8]) -> (Vec<u8>, [u8; 2]) {
-        match self {
-            Back::Speculos(x) => x.exchange_apdu(apdu),
-            Back::Hid(x) => x.exchange_apdu(apdu)
-        }
-    }
 }
 
 const SW_OK: u16 = 0x9000;
@@ -155,12 +126,12 @@ fn main() {
                     let mut buf: String = String::new();
                     file.read_to_string(&mut buf).unwrap();
 
-                    let mut comm = match b {
-                        Backend::Speculos => {
-                            Back::Speculos(Comm::<backend::SpeculosBackend>::create())
+                    let mut comm: Comm = match b {
+                        BackendType::Speculos => {
+                            Comm::create(BackendType::Speculos)
                         }
-                        Backend::Hid => {
-                            Back::Hid(Comm::<backend::HidBackend>::create())
+                        BackendType::Hid => {
+                            Comm::create(BackendType::Hid)
                         }
                     };
                     

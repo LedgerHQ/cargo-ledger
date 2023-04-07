@@ -1,6 +1,6 @@
 pub trait Backend {
 
-    fn new() -> Self;
+    //fn new() -> Self;
     
     fn open(&mut self);
 

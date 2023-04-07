@@ -7,8 +7,8 @@ pub struct HidBackend {
     device: Option<HidDevice>
 }
 
-impl Backend for HidBackend {
-    fn new() -> Self {
+impl HidBackend {
+    pub fn new() -> Self {
         let api = hidapi::HidApi::new().unwrap();
         HidBackend {
             hid: api,
@@ -16,7 +16,9 @@ impl Backend for HidBackend {
             device: None
         }
     }
+}
 
+impl Backend for HidBackend {
     fn open(&mut self) {
 
         let device_info = self.hid.device_list().find(
