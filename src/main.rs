@@ -126,14 +126,7 @@ fn main() {
                     let mut buf: String = String::new();
                     file.read_to_string(&mut buf).unwrap();
 
-                    let mut comm: Comm = match b {
-                        BackendType::Speculos => {
-                            Comm::create(BackendType::Speculos)
-                        }
-                        BackendType::Hid => {
-                            Comm::create(BackendType::Hid)
-                        }
-                    };
+                    let mut comm: Comm = Comm::create(b);
                     
                     for r in buf.lines() {
                         println!("=> {}", r);
