@@ -34,7 +34,6 @@ impl Backend for SpeculosBackend {
     fn send(&mut self, data: &[u8]) -> std::io::Result<usize> {
         match &mut self.stream {
             Some(s) => {
-                println!("sending data");
                 let mut data_to_send: Vec<u8> = Vec::from(data.len().to_be_bytes());
                 data_to_send.append(&mut Vec::from(data));
                 s.write(data_to_send.as_slice())

@@ -123,13 +123,15 @@ enum Back {
 }
 
 impl Back {
-    fn exchange_apdu(&mut self, apdu: &[u8]) {
+    fn exchange_apdu(&mut self, apdu: &[u8]) -> (Vec<u8>, [u8; 2]) {
         match self {
             Back::Speculos(x) => x.exchange_apdu(apdu),
-            Back::Hid(x) => x.exchange_apdu(apdu),
-        };
+            Back::Hid(x) => x.exchange_apdu(apdu)
+        }
     }
 }
+
+const SW_OK: u16 = 0x9000;
 
 fn main() {
     let Cli::Ledger(cli) = Cli::parse();
@@ -151,7 +153,7 @@ fn main() {
                 Some(p) => {
                     let mut file = File::open(p).unwrap();
                     let mut buf: String = String::new();
-                    file.read_to_string(&mut buf);
+                    file.read_to_string(&mut buf).unwrap();
 
                     let mut comm = match b {
                         Backend::Speculos => {
@@ -161,13 +163,24 @@ fn main() {
                             Back::Hid(Comm::<backend::HidBackend>::create())
                         }
                     };
-
+                    
                     for r in buf.lines() {
+                        println!("=> {}", r);
                         let apdu = hex::decode(r).unwrap();
-                        comm.exchange_apdu(apdu.as_slice());
+                        let (data_recv, sw) = comm.exchange_apdu(apdu.as_slice());
+                        print!("<= ");
+                        for b in data_recv {
+                            print!("{:02x}", b);
+                        }
+                        println!(" {:02x}{:02x}", sw[0], sw[1]);
+                        if u16::from_be_bytes(sw) != SW_OK {
+                            break;
+                        }
                     }
                 }
-                None => ()
+                None => {
+                    println!("Please provide an input file (cargo ledger send --help)");
+                }
             }
         }
     }
