@@ -129,16 +129,23 @@ fn main() {
                     let mut comm: Comm = Comm::create(b);
                     
                     for r in buf.lines() {
-                        println!("=> {}", r);
-                        let apdu = hex::decode(r).unwrap();
-                        let (data_recv, sw) = comm.exchange_apdu(apdu.as_slice());
-                        print!("<= ");
-                        for b in data_recv {
-                            print!("{:02x}", b);
-                        }
-                        println!(" {:02x}{:02x}", sw[0], sw[1]);
-                        if u16::from_be_bytes(sw) != SW_OK {
-                            break;
+                        match r.starts_with("=> ") {
+                            true => {
+                                println!("{}", r);
+                                let apdu = hex::decode(r.strip_prefix("=> ").unwrap()).unwrap();
+                                let (data_recv, sw) = comm.exchange_apdu(apdu.as_slice());
+                                print!("<= ");
+                                for b in data_recv {
+                                    print!("{:02x}", b);
+                                }
+                                println!(" {:02x}{:02x}", sw[0], sw[1]);
+                                if u16::from_be_bytes(sw) != SW_OK {
+                                    break;
+                                }
+                            }
+                            false => {
+                                println!("UNSENT: {} (only apdu prefixed with '=> ' are sent)", r);
+                            }
                         }
                     }
                 }
