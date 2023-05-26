@@ -47,15 +47,35 @@ pub fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
 }
 
 pub fn install_with_ledgerctl(
+    is_dry_run: bool,
+    use_python: bool,
     dir: &std::path::Path,
     app_json: &std::path::Path,
 ) {
-    let out = Command::new("ledgerctl")
-        .current_dir(dir)
-        .args(["install", "-f", app_json.to_str().unwrap()])
-        .output()
-        .expect("fail");
+    let mut arguments = Vec::new();
 
-    io::stdout().write_all(&out.stdout).unwrap();
-    io::stderr().write_all(&out.stderr).unwrap();
+    arguments.extend_from_slice(if use_python {
+        &["-m", "ledgerctl", "install", "-f"]
+    } else {
+        &["install", "-f"]
+    });
+    arguments.push(app_json.to_str().unwrap());
+
+    let mut command =
+        Command::new(if use_python { "python3" } else { "ledgerctl" });
+
+    if !is_dry_run {
+        command.current_dir(dir);
+    }
+
+    command.args(arguments);
+
+    if is_dry_run {
+        println!("{:?}", command);
+    } else {
+        let out = command.output().expect("fail");
+
+        io::stdout().write_all(&out.stdout).unwrap();
+        io::stderr().write_all(&out.stderr).unwrap();
+    }
 }
