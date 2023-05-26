@@ -39,7 +39,7 @@ enum Cli {
 struct CliArgs {
     #[clap(long)]
     #[clap(value_name = "prebuilt ELF exe")]
-    use_prebuilt: Option<std::path::PathBuf>,
+    use_prebuilt: Option<PathBuf>,
 
     #[clap(long)]
     #[clap(help = concat!(
@@ -82,6 +82,12 @@ enum MainCommand {
         #[clap(short, long)]
         #[clap(help = "load on a device")]
         load: bool,
+        #[clap(short, long)]
+        #[clap(help = "print command instead of actual loading")]
+        dry_run: bool,
+        #[clap(long)]
+        #[clap(help = "Use python3 to invoke ledgerctl")]
+        use_python: bool,
         #[clap(last = true)]
         remaining_args: Vec<String>,
     },
@@ -93,11 +99,13 @@ fn main() {
     match cli.command {
         MainCommand::Setup => install_targets(),
         MainCommand::Build {
-            device: d,
-            load: a,
-            remaining_args: r,
+            device,
+            load,
+            dry_run,
+            use_python,
+            remaining_args,
         } => {
-            build_app(d, a, cli.use_prebuilt, cli.hex_next_to_json, r);
+            build_app(device, load, dry_run, cli.use_prebuilt, cli.hex_next_to_json, use_python, remaining_args);
         }
     }
 }
@@ -105,8 +113,10 @@ fn main() {
 fn build_app(
     device: Device,
     is_load: bool,
+    is_dry_run: bool,
     use_prebuilt: Option<PathBuf>,
     hex_next_to_json: bool,
+    use_python: bool,
     remaining_args: Vec<String>,
 ) {
     let exe_path = match use_prebuilt {
@@ -123,10 +133,10 @@ fn build_app(
                 .spawn()
                 .unwrap();
 
-            let mut exe_path = std::path::PathBuf::new();
+            let mut exe_path = PathBuf::new();
             let out = cargo_cmd.stdout.take().unwrap();
             let reader = std::io::BufReader::new(out);
-            for message in cargo_metadata::Message::parse_stream(reader) {
+            for message in Message::parse_stream(reader) {
                 match message.as_ref().unwrap() {
                     Message::CompilerArtifact(artifact) => {
                         if let Some(n) = &artifact.executable {
@@ -151,12 +161,12 @@ fn build_app(
     let mut cmd = cargo_metadata::MetadataCommand::new();
     let res = cmd.no_deps().exec().unwrap();
 
-    // Fetch package.metadata.nanos section
+    // Fetch package.metadata.nanos/nanosplus/nanox section from Cargo.toml
     let this_pkg = res.packages.last().unwrap();
     let metadata_value = this_pkg
         .metadata
         .get(device.as_ref())
-        .expect("package.metadata.nanos section is missing in Cargo.toml")
+        .expect("package.metadata has no section for specified device in Cargo.toml")
         .clone();
     let this_metadata: NanosMetadata =
         serde_json::from_value(metadata_value).unwrap();
@@ -226,6 +236,6 @@ fn build_app(
     serde_json::to_writer_pretty(file, &json).unwrap();
 
     if is_load {
-        install_with_ledgerctl(current_dir, &app_json);
+        install_with_ledgerctl(is_dry_run, use_python, current_dir, &app_json);
     }
 }
