@@ -4,9 +4,28 @@ use std::io;
 use std::io::Write;
 use std::process::Command;
 
-pub fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
+#[derive(Default, Debug)]
+pub struct LedgerAppInfos {
+    pub api_level: u8,
+    pub size: u64,
+}
+
+pub fn retrieve_infos(
+    file: &std::path::Path,
+) -> Result<LedgerAppInfos, io::Error> {
     let buffer = fs::read(file)?;
     let elf = goblin::elf::Elf::parse(&buffer).unwrap();
+
+    let mut infos = LedgerAppInfos::default();
+
+    // All infos coming from the SDK are expected to be regrouped
+    // in various `.ledger.<field_name>` section of the binary.
+    // For now we only need the API_LEVEL
+    for section in elf.section_headers.iter() {
+        if let Some(Ok(".ledger.api_level")) = elf.shdr_strtab.get(section.sh_name) { 
+            infos.api_level = buffer[section.sh_offset as usize];
+        }
+    }
 
     let mut nvram_data = 0;
     let mut envram_data = 0;
@@ -19,7 +38,8 @@ pub fn retrieve_data_size(file: &std::path::Path) -> Result<u64, io::Error> {
             _ => (),
         }
     }
-    Ok(envram_data - nvram_data)
+    infos.size = envram_data - nvram_data;
+    Ok(infos)
 }
 
 pub fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
