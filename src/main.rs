@@ -217,7 +217,7 @@ fn build_app(
     match device {
         Device::Nanos => (),
         _ => {
-            json["apiLevel"] = infos.api_level.into();
+            json["apiLevel"] = infos.api_level.to_string().into();
         }
     }
     serde_json::to_writer_pretty(file, &json).unwrap();
