@@ -143,7 +143,7 @@ fn build_app(
 
             exe_path
         }
-        Some(prebuilt) => prebuilt,
+        Some(prebuilt) => prebuilt.canonicalize().unwrap(),
     };
 
     // Fetch crate metadata without fetching dependencies
@@ -154,7 +154,7 @@ fn build_app(
     let this_pkg = res.packages.last().unwrap();
     let metadata_value = this_pkg
         .metadata
-        .get("nanos")
+        .get(device_str)
         .expect("package.metadata.nanos section is missing in Cargo.toml")
         .clone();
     let this_metadata: NanosMetadata =
