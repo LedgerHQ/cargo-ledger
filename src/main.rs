@@ -1,18 +1,23 @@
 use cargo_metadata::Message;
 use clap::{Parser, Subcommand, ValueEnum};
-use std::fs;
+use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
 use serde_json::json;
 
+use hex;
+
 mod setup;
 mod utils;
+mod backend;
 
 use serde_derive::Deserialize;
 use setup::install_targets;
 use utils::*;
+use backend::{ Comm, BackendType};
 
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
@@ -69,6 +74,7 @@ impl AsRef<str> for Device {
     }
 }
 
+
 #[derive(Subcommand, Debug)]
 enum MainCommand {
     #[clap(about = "install custom target files")]
@@ -84,7 +90,18 @@ enum MainCommand {
         #[clap(last = true)]
         remaining_args: Vec<String>,
     },
+    #[clap(about = "send apdus to app running in speculos env or in hw device")]
+    Send {
+        #[clap(help = "file to read apdus from")]
+        file: Option<std::path::PathBuf>,
+        #[clap(value_enum)]
+        #[clap(help = "backend to use")]
+        #[arg(default_value_t = BackendType::Speculos)]
+        backend: BackendType,
+    },
 }
+
+const SW_OK: u16 = 0x9000;
 
 fn main() {
     let Cli::Ledger(cli) = Cli::parse();
@@ -97,6 +114,44 @@ fn main() {
             remaining_args: r,
         } => {
             build_app(d, a, cli.use_prebuilt, cli.hex_next_to_json, r);
+        }
+        MainCommand::Send {
+            file: f,
+            backend: b,
+        } => {
+            match f {
+                Some(p) => {
+                    let mut file = File::open(p).unwrap();
+                    let mut buf: String = String::new();
+                    file.read_to_string(&mut buf).unwrap();
+
+                    let mut comm: Comm = Comm::create(b);
+                    
+                    for r in buf.lines() {
+                        match r.starts_with("=> ") {
+                            true => {
+                                println!("{}", r);
+                                let apdu = hex::decode(r.strip_prefix("=> ").unwrap()).unwrap();
+                                let (data_recv, sw) = comm.exchange_apdu(apdu.as_slice());
+                                print!("<= ");
+                                for b in data_recv {
+                                    print!("{:02x}", b);
+                                }
+                                println!(" {:02x}{:02x}", sw[0], sw[1]);
+                                if u16::from_be_bytes(sw) != SW_OK {
+                                    break;
+                                }
+                            }
+                            false => {
+                                println!("UNSENT: {} (only apdu prefixed with '=> ' are sent)", r);
+                            }
+                        }
+                    }
+                }
+                None => {
+                    println!("Please provide an input file (cargo ledger send --help)");
+                }
+            }
         }
     }
 }
@@ -199,7 +254,7 @@ fn build_app(
     };
 
     // create manifest
-    let file = fs::File::create(&app_json).unwrap();
+    let file = File::create(&app_json).unwrap();
     let mut json = json!({
         "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
