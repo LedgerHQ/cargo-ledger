@@ -148,10 +148,17 @@ fn build_app(
 
     // Fetch crate metadata without fetching dependencies
     let mut cmd = cargo_metadata::MetadataCommand::new();
-    let res = cmd.no_deps().exec().unwrap();
-
+    let mut res = cmd.no_deps().exec().unwrap();
+    
     // Fetch package.metadata.nanos section
-    let this_pkg = res.packages.last().unwrap();
+    let pkg_name = exe_path.file_stem().unwrap().to_owned();
+    let pkg_name_string = pkg_name.into_string().unwrap();
+    
+    let mut this_pkg = res.packages.pop().unwrap();
+    while this_pkg.name != pkg_name_string {
+        this_pkg = res.packages.pop().unwrap();
+    }
+
     let metadata_value = this_pkg
         .metadata
         .get("nanos")
@@ -168,6 +175,8 @@ fn build_app(
         exe_path.parent().unwrap()
     }
     .join("app.hex");
+
+    println!("===============> {}\n", hex_file_abs.display());
 
     export_binary(&exe_path, &hex_file_abs);
 
