@@ -58,6 +58,7 @@ enum Device {
     Nanos,
     Nanox,
     Nanosplus,
+    Stax,
 }
 
 impl AsRef<str> for Device {
@@ -66,6 +67,7 @@ impl AsRef<str> for Device {
             Device::Nanos => "nanos",
             Device::Nanox => "nanox",
             Device::Nanosplus => "nanosplus",
+            Device::Stax => "stax",
         }
     }
 }
@@ -105,7 +107,15 @@ fn main() {
             use_python,
             remaining_args,
         } => {
-            build_app(device, load, dry_run, cli.use_prebuilt, cli.hex_next_to_json, use_python, remaining_args);
+            build_app(
+                device,
+                load,
+                dry_run,
+                cli.use_prebuilt,
+                cli.hex_next_to_json,
+                use_python,
+                remaining_args,
+            );
         }
     }
 }
@@ -192,10 +202,10 @@ fn build_app(
     // Retrieve real 'dataSize' from ELF
     let data_size = retrieve_data_size(&exe_path).unwrap();
 
-    // Modify flags to enable BLE if targetting Nano X
+    // Modify flags to enable BLE if targeting Nano X
     let flags = match device {
         Device::Nanos | Device::Nanosplus => this_metadata.flags,
-        Device::Nanox => {
+        Device::Nanox | Device::Stax => {
             let base = u32::from_str_radix(this_metadata.flags.as_str(), 16)
                 .unwrap_or(0);
             format!("0x{:x}", base | 0x200)
@@ -207,6 +217,7 @@ fn build_app(
         Device::Nanos => ("0x31100004", &this_metadata.icon),
         Device::Nanox => ("0x33000004", &this_metadata.icon_small),
         Device::Nanosplus => ("0x33100004", &this_metadata.icon_small),
+        Device::Stax => ("0x33200004", &this_metadata.icon_small),
     };
 
     // create manifest
