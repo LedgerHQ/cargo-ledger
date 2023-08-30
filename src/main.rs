@@ -1,18 +1,19 @@
-use cargo_metadata::Message;
-use clap::{Parser, Subcommand, ValueEnum};
+use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
+use cargo_metadata::Message;
+use clap::{Parser, Subcommand, ValueEnum};
+use serde_derive::Deserialize;
 use serde_json::json;
+
+use setup::install_targets;
+use utils::*;
 
 mod setup;
 mod utils;
-
-use serde_derive::Deserialize;
-use setup::install_targets;
-use utils::*;
 
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
@@ -38,7 +39,7 @@ enum Cli {
 struct CliArgs {
     #[clap(long)]
     #[clap(value_name = "prebuilt ELF exe")]
-    use_prebuilt: Option<std::path::PathBuf>,
+    use_prebuilt: Option<PathBuf>,
 
     #[clap(long)]
     #[clap(help = concat!(
@@ -52,11 +53,17 @@ struct CliArgs {
     command: MainCommand,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
 enum Device {
     Nanos,
     Nanox,
     Nanosplus,
+}
+
+impl Display for Device {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
 }
 
 impl AsRef<str> for Device {
@@ -122,10 +129,10 @@ fn build_app(
                 .spawn()
                 .unwrap();
 
-            let mut exe_path = std::path::PathBuf::new();
+            let mut exe_path = PathBuf::new();
             let out = cargo_cmd.stdout.take().unwrap();
             let reader = std::io::BufReader::new(out);
-            for message in cargo_metadata::Message::parse_stream(reader) {
+            for message in Message::parse_stream(reader) {
                 match message.as_ref().unwrap() {
                     Message::CompilerArtifact(artifact) => {
                         if let Some(n) = &artifact.executable {
@@ -143,18 +150,26 @@ fn build_app(
 
             exe_path
         }
-        Some(prebuilt) => prebuilt,
+        Some(prebuilt) => prebuilt.canonicalize().unwrap(),
     };
 
     // Fetch crate metadata without fetching dependencies
     let mut cmd = cargo_metadata::MetadataCommand::new();
     let res = cmd.no_deps().exec().unwrap();
 
-    // Fetch package.metadata.nanos section
+    // Fetch package.metadata.(nanos|nanosplus|nanox) section
     let this_pkg = res.packages.last().unwrap();
     let metadata_value = this_pkg
         .metadata
-        .get("nanos")
+        .get(device.as_ref())
+        .or_else(|| {
+            if device != Device::Nanos {
+                println!("WARNING: 'package.metadata.{device}' section is missing in Cargo.toml, trying 'package.metadata.nanos'");
+                this_pkg.metadata.get("nanos")
+            } else {
+                None
+            }
+        })
         .expect("package.metadata.nanos section is missing in Cargo.toml")
         .clone();
     let this_metadata: NanosMetadata =
@@ -181,7 +196,7 @@ fn build_app(
     // Retrieve real data size and SDK infos from ELF
     let infos = retrieve_infos(&exe_path).unwrap();
 
-    // Modify flags to enable BLE if targetting Nano X
+    // Modify flags to enable BLE if targeting Nano X
     let flags = match device {
         Device::Nanos | Device::Nanosplus => this_metadata.flags,
         Device::Nanox => {

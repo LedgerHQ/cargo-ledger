@@ -1,1 +1,6 @@
-/target
+# Editors
+.idea/
+.vscode/
+
+# Rust
+target
