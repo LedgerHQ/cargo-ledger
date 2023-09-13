@@ -22,7 +22,9 @@ pub fn retrieve_infos(
     // in various `.ledger.<field_name>` section of the binary.
     // For now we only need the API_LEVEL
     for section in elf.section_headers.iter() {
-        if let Some(Ok(".ledger.api_level")) = elf.shdr_strtab.get(section.sh_name) { 
+        if let Some(Ok(".ledger.api_level")) =
+            elf.shdr_strtab.get(section.sh_name)
+        {
             infos.api_level = buffer[section.sh_offset as usize];
         }
     }

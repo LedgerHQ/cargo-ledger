@@ -1,19 +1,22 @@
-use cargo_metadata::Message;
-use clap::{Parser, Subcommand, ValueEnum};
+use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
+use cargo_metadata::{Message, Package};
+use clap::{Parser, Subcommand, ValueEnum};
+use serde_derive::Deserialize;
 use serde_json::json;
+
+use setup::install_targets;
+use utils::*;
 
 mod setup;
 mod utils;
 
-use serde_derive::Deserialize;
-use setup::install_targets;
-use utils::*;
-
+/// Structure for retrocompatibility, when the cargo manifest file
+/// contains a single `[package.metadata.nanos]` section
 #[derive(Debug, Deserialize)]
 struct NanosMetadata {
     curve: Vec<String>,
@@ -22,6 +25,19 @@ struct NanosMetadata {
     icon: String,
     icon_small: String,
     name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LedgerMetadata {
+    curve: Vec<String>,
+    path: Vec<String>,
+    flags: String,
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceMetadata {
+    icon: String,
 }
 
 #[derive(Parser, Debug)]
@@ -38,7 +54,7 @@ enum Cli {
 struct CliArgs {
     #[clap(long)]
     #[clap(value_name = "prebuilt ELF exe")]
-    use_prebuilt: Option<std::path::PathBuf>,
+    use_prebuilt: Option<PathBuf>,
 
     #[clap(long)]
     #[clap(help = concat!(
@@ -52,11 +68,17 @@ struct CliArgs {
     command: MainCommand,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
 enum Device {
     Nanos,
     Nanox,
     Nanosplus,
+}
+
+impl Display for Device {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
 }
 
 impl AsRef<str> for Device {
@@ -101,6 +123,68 @@ fn main() {
     }
 }
 
+fn retrieve_metadata(
+    device: Device,
+    manifest_path: Option<&str>,
+) -> (Package, LedgerMetadata, DeviceMetadata) {
+    let mut cmd = cargo_metadata::MetadataCommand::new();
+
+    // Only used during tests
+    if let Some(manifestpath) = manifest_path {
+        cmd = cmd.manifest_path(manifestpath).clone();
+    }
+
+    let res = cmd
+        .no_deps()
+        .exec()
+        .expect("Could not execute `cargo metadata`");
+
+    let this_pkg = res.packages.last().unwrap();
+    let metadata_section = this_pkg.metadata.get("ledger");
+
+    if let Some(metadatasection) = metadata_section {
+        let metadata_device = metadata_section
+            .unwrap()
+            .clone()
+            .get(device.as_ref())
+            .unwrap()
+            .clone();
+
+        let ledger_metadata: LedgerMetadata =
+            serde_json::from_value(metadatasection.clone())
+                .expect("Could not deserialize medatada.ledger");
+        let device_metadata: DeviceMetadata =
+            serde_json::from_value(metadata_device)
+                .expect("Could not deserialize device medatada");
+
+        (this_pkg.clone(), ledger_metadata, device_metadata)
+    } else {
+        println!("WARNING: 'package.metadata.ledger' section is missing in Cargo.toml, trying 'package.metadata.nanos'");
+        let nanos_section = this_pkg.metadata.get("nanos").expect(
+            "No appropriate [package.metadata.<ledger|nanos>] section found.",
+        );
+
+        let nanos_metadata: NanosMetadata =
+            serde_json::from_value(nanos_section.clone())
+                .expect("Could not deserialize medatada.nanos");
+        let ledger_metadata = LedgerMetadata {
+            curve: nanos_metadata.curve,
+            path: nanos_metadata.path,
+            flags: nanos_metadata.flags,
+            name: nanos_metadata.name,
+        };
+
+        let device_metadata = DeviceMetadata {
+            icon: match device {
+                Device::Nanos => nanos_metadata.icon,
+                _ => nanos_metadata.icon_small,
+            },
+        };
+
+        (this_pkg.clone(), ledger_metadata, device_metadata)
+    }
+}
+
 fn build_app(
     device: Device,
     is_load: bool,
@@ -122,10 +206,10 @@ fn build_app(
                 .spawn()
                 .unwrap();
 
-            let mut exe_path = std::path::PathBuf::new();
+            let mut exe_path = PathBuf::new();
             let out = cargo_cmd.stdout.take().unwrap();
             let reader = std::io::BufReader::new(out);
-            for message in cargo_metadata::Message::parse_stream(reader) {
+            for message in Message::parse_stream(reader) {
                 match message.as_ref().unwrap() {
                     Message::CompilerArtifact(artifact) => {
                         if let Some(n) = &artifact.executable {
@@ -143,24 +227,15 @@ fn build_app(
 
             exe_path
         }
-        Some(prebuilt) => prebuilt,
+        Some(prebuilt) => prebuilt.canonicalize().unwrap(),
     };
 
-    // Fetch crate metadata without fetching dependencies
-    let mut cmd = cargo_metadata::MetadataCommand::new();
-    let res = cmd.no_deps().exec().unwrap();
-
-    // Fetch package.metadata.nanos section
-    let this_pkg = res.packages.last().unwrap();
-    let metadata_value = this_pkg
-        .metadata
-        .get("nanos")
-        .expect("package.metadata.nanos section is missing in Cargo.toml")
-        .clone();
-    let this_metadata: NanosMetadata =
-        serde_json::from_value(metadata_value).unwrap();
-
-    let current_dir = this_pkg.manifest_path.parent().unwrap();
+    let (this_pkg, metadata_ledger, metadata_device) =
+        retrieve_metadata(device, None);
+    let current_dir = this_pkg
+        .manifest_path
+        .parent()
+        .expect("Could not find package's parent path");
 
     let hex_file_abs = if hex_next_to_json {
         current_dir
@@ -181,34 +256,34 @@ fn build_app(
     // Retrieve real data size and SDK infos from ELF
     let infos = retrieve_infos(&exe_path).unwrap();
 
-    // Modify flags to enable BLE if targetting Nano X
+    // Modify flags to enable BLE if targeting Nano X
     let flags = match device {
-        Device::Nanos | Device::Nanosplus => this_metadata.flags,
+        Device::Nanos | Device::Nanosplus => metadata_ledger.flags,
         Device::Nanox => {
-            let base = u32::from_str_radix(this_metadata.flags.as_str(), 16)
+            let base = u32::from_str_radix(metadata_ledger.flags.as_str(), 16)
                 .unwrap_or(0);
             format!("0x{:x}", base | 0x200)
         }
     };
 
     // Pick icon and targetid according to target
-    let (targetid, icon) = match device {
-        Device::Nanos => ("0x31100004", &this_metadata.icon),
-        Device::Nanox => ("0x33000004", &this_metadata.icon_small),
-        Device::Nanosplus => ("0x33100004", &this_metadata.icon_small),
+    let targetid = match device {
+        Device::Nanos => "0x31100004",
+        Device::Nanox => "0x33000004",
+        Device::Nanosplus => "0x33100004",
     };
 
     // create manifest
     let file = fs::File::create(&app_json).unwrap();
     let mut json = json!({
-        "name": this_metadata.name.as_ref().unwrap_or(&this_pkg.name),
+        "name": metadata_ledger.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
-        "icon": icon,
+        "icon": metadata_device.icon,
         "targetId": targetid,
         "flags": flags,
         "derivationPath": {
-            "curves": this_metadata.curve,
-            "paths": this_metadata.path
+            "curves": metadata_ledger.curve,
+            "paths": metadata_ledger.path
         },
         "binary": hex_file,
         "dataSize": infos.size
@@ -224,5 +299,51 @@ fn build_app(
 
     if is_load {
         install_with_ledgerctl(current_dir, &app_json);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_metadata() {
+        let (_, metadata_ledger, metadata_nanos) =
+            retrieve_metadata(Device::Nanos, Some("./tests/valid/Cargo.toml"));
+
+        assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
+        assert_eq!(metadata_ledger.curve, ["secp256k1"]);
+        assert_eq!(metadata_ledger.flags, "0x38");
+        assert_eq!(metadata_ledger.path, ["'44/123"]);
+
+        assert_eq!(metadata_nanos.icon, "./assets/nanos.gif")
+    }
+
+    #[test]
+    fn valid_metadata_variant() {
+        let (_, metadata_ledger, metadata_nanos) = retrieve_metadata(
+            Device::Nanos,
+            Some("./tests/valid_variant/Cargo.toml"),
+        );
+
+        assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
+        assert_eq!(metadata_ledger.curve, ["secp256k1"]);
+        assert_eq!(metadata_ledger.flags, "0x38");
+        assert_eq!(metadata_ledger.path, ["'44/123"]);
+        assert_eq!(metadata_nanos.icon, "./assets/nanos.gif")
+    }
+
+    #[test]
+    fn valid_outdated_metadata() {
+        let (_, metadata_ledger, metadata_nanos) = retrieve_metadata(
+            Device::Nanos,
+            Some("./tests/valid_outdated/Cargo.toml"),
+        );
+
+        assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
+        assert_eq!(metadata_ledger.curve, ["secp256k1"]);
+        assert_eq!(metadata_ledger.flags, "0");
+        assert_eq!(metadata_ledger.path, ["'44/123"]);
+        assert_eq!(metadata_nanos.icon, "nanos.gif")
     }
 }
