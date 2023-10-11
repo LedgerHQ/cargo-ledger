@@ -292,10 +292,23 @@ fn build_app(
     match device {
         Device::Nanos => (),
         _ => {
-            json["apiLevel"] = infos.api_level.to_string().into();
+            json["apiLevel"] = infos.api_level.into();
         }
     }
     serde_json::to_writer_pretty(file, &json).unwrap();
+
+    // Use ledgerctl to dump the APDU installation file.
+    // Either dump to the location provided by the --out-dir cargo
+    // argument if provided or use the default binary path.
+    let output_dir: Option<PathBuf> = remaining_args
+        .iter()
+        .find(|&x| x.contains("--out-dir="))
+        .and_then(|found| found.split("--out-dir=").nth(1))
+        .map(|path_str| PathBuf::from(path_str));
+    let exe_filename = exe_path.file_name().unwrap().to_str();
+    let exe_parent = exe_path.parent().unwrap().to_path_buf();
+    let apdu_file_path = output_dir.unwrap_or(exe_parent).join(exe_filename.unwrap()).with_extension("apdu");
+    dump_with_ledgerctl(current_dir, &app_json, apdu_file_path.to_str().unwrap());
 
     if is_load {
         install_with_ledgerctl(current_dir, &app_json);
