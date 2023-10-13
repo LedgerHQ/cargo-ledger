@@ -266,11 +266,12 @@ fn build_app(
         }
     };
 
-    // Pick icon and targetid according to target
-    let targetid = match device {
-        Device::Nanos => "0x31100004",
-        Device::Nanox => "0x33000004",
-        Device::Nanosplus => "0x33100004",
+    // Target ID according to target, in case it
+    // is not present in the retrieved ELF infos.
+    let backup_targetid : String = match device {
+        Device::Nanos => String::from("0x31100004"),
+        Device::Nanox => String::from("0x33000004"),
+        Device::Nanosplus => String::from("0x33100004"),
     };
 
     // create manifest
@@ -279,7 +280,7 @@ fn build_app(
         "name": metadata_ledger.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
         "icon": metadata_device.icon,
-        "targetId": targetid,
+        "targetId": infos.target_id.unwrap_or(backup_targetid),
         "flags": flags,
         "derivationPath": {
             "curves": metadata_ledger.curve,

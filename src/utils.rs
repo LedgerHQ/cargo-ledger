@@ -7,6 +7,7 @@ use std::process::Command;
 #[derive(Default, Debug)]
 pub struct LedgerAppInfos {
     pub api_level: String,
+    pub target_id : Option<String>,
     pub size: u64,
 }
 
@@ -31,7 +32,6 @@ pub fn retrieve_infos(
     // All infos coming from the SDK are expected to be regrouped
     // in various `.ledger.<field_name>` (rust SDK <= 0.2.1) or
     // `ledger.<field_name> (rust SDK > 0.2.1) section of the binary.
-    // For now we only need the API_LEVEL
     for section in elf.section_headers.iter() {
         if let Some(Ok(name)) =
             elf.shdr_strtab.get(section.sh_name)
@@ -40,13 +40,15 @@ pub fn retrieve_infos(
             {
                 // For rust SDK > 0.2.1, the API level is stored as a string (like C SDK)
                 infos.api_level = get_string_from_offset(&buffer, &(section.sh_offset as usize));
-                break;
             }
             else if name == ".ledger.api_level"
             {
                 // For rust SDK <= 0.2.1, the API level is stored as a byte
                 infos.api_level = buffer[section.sh_offset as usize].to_string();
-                break;
+            }
+            else if name == "ledger.target_id"
+            {
+                infos.target_id = Some(get_string_from_offset(&buffer, &(section.sh_offset as usize)));
             }
         }
     }
