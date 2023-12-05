@@ -27,6 +27,11 @@ pub fn retrieve_infos(
         {
             infos.api_level = buffer[section.sh_offset as usize];
         }
+        if let Some(Ok("ledger.api_level")) =
+            elf.shdr_strtab.get(section.sh_name)
+        {
+            infos.api_level = buffer[section.sh_offset as usize] - b'0';
+        }
     }
 
     let mut nvram_data = 0;
