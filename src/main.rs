@@ -266,11 +266,12 @@ fn build_app(
         }
     };
 
-    // Pick icon and targetid according to target
-    let targetid = match device {
-        Device::Nanos => "0x31100004",
-        Device::Nanox => "0x33000004",
-        Device::Nanosplus => "0x33100004",
+    // Target ID according to target, in case it
+    // is not present in the retrieved ELF infos.
+    let backup_targetid : String = match device {
+        Device::Nanos => String::from("0x31100004"),
+        Device::Nanox => String::from("0x33000004"),
+        Device::Nanosplus => String::from("0x33100004"),
     };
 
     // create manifest
@@ -279,7 +280,7 @@ fn build_app(
         "name": metadata_ledger.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
         "icon": metadata_device.icon,
-        "targetId": targetid,
+        "targetId": infos.target_id.unwrap_or(backup_targetid),
         "flags": flags,
         "derivationPath": {
             "curves": metadata_ledger.curve,
@@ -292,10 +293,33 @@ fn build_app(
     match device {
         Device::Nanos => (),
         _ => {
-            json["apiLevel"] = infos.api_level.to_string().into();
+            json["apiLevel"] = infos.api_level.into();
         }
     }
     serde_json::to_writer_pretty(file, &json).unwrap();
+
+    // Use ledgerctl to dump the APDU installation file.
+    // Either dump to the location provided by the --out-dir cargo
+    // argument if provided or use the default binary path.
+    let output_dir: Option<PathBuf> = remaining_args
+        .iter()
+        .position(|arg| arg == "--out-dir" || arg.starts_with("--out-dir="))
+        .and_then(|index| {
+            let out_dir_arg = &remaining_args[index];
+            // Extracting the value from "--out-dir=<some value>" or "--out-dir <some value>"
+            if out_dir_arg.contains('=') {
+                Some(out_dir_arg.split('=').nth(1).unwrap().to_string())
+            } else {
+                remaining_args
+                    .get(index + 1)
+                    .map(|path_str| path_str.to_string())
+            }
+        })
+        .map(|path_str| PathBuf::from(path_str));
+    let exe_filename = exe_path.file_name().unwrap().to_str();
+    let exe_parent = exe_path.parent().unwrap().to_path_buf();
+    let apdu_file_path = output_dir.unwrap_or(exe_parent).join(exe_filename.unwrap()).with_extension("apdu");
+    dump_with_ledgerctl(current_dir, &app_json, apdu_file_path.to_str().unwrap());
 
     if is_load {
         install_with_ledgerctl(current_dir, &app_json);

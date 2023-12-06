@@ -6,8 +6,19 @@ use std::process::Command;
 
 #[derive(Default, Debug)]
 pub struct LedgerAppInfos {
-    pub api_level: u8,
+    pub api_level: String,
+    pub target_id : Option<String>,
     pub size: u64,
+}
+
+fn get_string_from_offset(vector: &Vec<u8>,offset: &usize) -> String {
+    // Find the end of the string (search for a line feed character)
+    let end_index = vector[*offset..]
+        .iter()
+        .position(|&x| x == '\n' as u8)
+        .map(|pos| *offset + pos)
+        .unwrap_or(*offset); // Use the start offset if the delimiter position is not found
+    String::from_utf8(vector[*offset..end_index].to_vec()).expect("Invalid UTF-8")
 }
 
 pub fn retrieve_infos(
@@ -19,13 +30,26 @@ pub fn retrieve_infos(
     let mut infos = LedgerAppInfos::default();
 
     // All infos coming from the SDK are expected to be regrouped
-    // in various `.ledger.<field_name>` section of the binary.
-    // For now we only need the API_LEVEL
+    // in various `.ledger.<field_name>` (rust SDK <= 1.0.0) or
+    // `ledger.<field_name> (rust SDK > 1.0.0) section of the binary.
     for section in elf.section_headers.iter() {
-        if let Some(Ok(".ledger.api_level")) =
+        if let Some(Ok(name)) =
             elf.shdr_strtab.get(section.sh_name)
         {
-            infos.api_level = buffer[section.sh_offset as usize];
+            if name == "ledger.api_level"
+            {
+                // For rust SDK > 1.0.0, the API level is stored as a string (like C SDK)
+                infos.api_level = get_string_from_offset(&buffer, &(section.sh_offset as usize));
+            }
+            else if name == ".ledger.api_level"
+            {
+                // For rust SDK <= 1.0.0, the API level is stored as a byte
+                infos.api_level = buffer[section.sh_offset as usize].to_string();
+            }
+            else if name == "ledger.target_id"
+            {
+                infos.target_id = Some(get_string_from_offset(&buffer, &(section.sh_offset as usize)));
+            }
         }
     }
 
@@ -75,6 +99,27 @@ pub fn install_with_ledgerctl(
     let out = Command::new("ledgerctl")
         .current_dir(dir)
         .args(["install", "-f", app_json.to_str().unwrap()])
+        .output()
+        .expect("fail");
+
+    io::stdout().write_all(&out.stdout).unwrap();
+    io::stderr().write_all(&out.stderr).unwrap();
+}
+
+pub fn dump_with_ledgerctl(
+    dir: &std::path::Path,
+    app_json: &std::path::Path,
+    out_file_name: &str,
+) {
+    let out = Command::new("ledgerctl")
+        .current_dir(dir)
+        .args([
+            "install",
+            app_json.to_str().unwrap(),
+            "-o",
+            out_file_name,
+            "-f",
+        ])
         .output()
         .expect("fail");
 
