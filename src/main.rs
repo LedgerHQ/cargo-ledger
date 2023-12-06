@@ -303,8 +303,18 @@ fn build_app(
     // argument if provided or use the default binary path.
     let output_dir: Option<PathBuf> = remaining_args
         .iter()
-        .find(|&x| x.contains("--out-dir="))
-        .and_then(|found| found.split("--out-dir=").nth(1))
+        .position(|arg| arg == "--out-dir" || arg.starts_with("--out-dir="))
+        .and_then(|index| {
+            let out_dir_arg = &remaining_args[index];
+            // Extracting the value from "--out-dir=<some value>" or "--out-dir <some value>"
+            if out_dir_arg.contains('=') {
+                Some(out_dir_arg.split('=').nth(1).unwrap().to_string())
+            } else {
+                remaining_args
+                    .get(index + 1)
+                    .map(|path_str| path_str.to_string())
+            }
+        })
         .map(|path_str| PathBuf::from(path_str));
     let exe_filename = exe_path.file_name().unwrap().to_str();
     let exe_parent = exe_path.parent().unwrap().to_path_buf();
