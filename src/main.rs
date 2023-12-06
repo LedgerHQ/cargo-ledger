@@ -185,6 +185,8 @@ fn retrieve_metadata(
     }
 }
 
+const STANDARD_BIN_NAME : &str = "app";
+
 fn build_app(
     device: Device,
     is_load: bool,
@@ -236,22 +238,62 @@ fn build_app(
         .manifest_path
         .parent()
         .expect("Could not find package's parent path");
+    
+    // Create standard binary output directory or use the one provided by the --out-dir cargo argument
+    let mut rename : bool = false;
+    let output_dir = match remaining_args.iter()
+    .find(|&x| x.contains("--out-dir="))
+    .and_then(|found| found.split("--out-dir=").nth(1))
+    .map(|path_str| PathBuf::from(path_str)) 
+    {
+        Some(out_dir) => {
+            rename = true;
+            println!("out dir arg found : {:?}", out_dir);
+            out_dir
+        },
+        None => {
+            let standard_din_dir = PathBuf::new().join(current_dir).join("bin");
+            if let Err(err) = fs::create_dir(&standard_din_dir) {
+                eprintln!("Error creating bin directory : {}", err);
+            }
+            println!("Using standard bin directory : {:?}", standard_din_dir);
+            standard_din_dir
+        }
+    };
 
-    let hex_file_abs = if hex_next_to_json {
+    // Create hex file
+    let hex_path = if hex_next_to_json {
         current_dir
     } else {
-        exe_path.parent().unwrap()
+        &(output_dir.as_path())
     }
-    .join("app.hex");
+    .join(format!("{}.hex", STANDARD_BIN_NAME));
+    export_binary(&exe_path, &hex_path);
 
-    export_binary(&exe_path, &hex_file_abs);
+    let new_exe_path = output_dir.join(format!("{}.elf",STANDARD_BIN_NAME));
+    // Copy elf file to standard bin directory
+    // or rename if --out-dir was provided
+    if rename {
+        // Rename elf file to standard name
+        let orig = output_dir.join(exe_path.file_name().unwrap().to_str().unwrap());
+        // println!("Rename elf file ({}) to standard name : {:?}", orig.display(), new_exe_path);
+        if let Err(err) = fs::rename(&orig, &new_exe_path) {
+            eprintln!("Error renaming hex file to standard name : {}", err);
+        }
+    }
+    else {
+        // println!("Copy ELF file to output directory : {:?}", new_exe_path);
+        if let Err(err) = fs::copy(&exe_path, &new_exe_path) {
+            eprintln!("Error copying ELF file to output directory : {}", err);
+        }
+    }
 
     // app.json will be placed in the app's root directory
     let app_json_name = format!("app_{}.json", device.as_ref());
     let app_json = current_dir.join(app_json_name);
 
     // Find hex file path relative to 'app.json'
-    let hex_file = hex_file_abs.strip_prefix(current_dir).unwrap();
+    let hex_file_relative = hex_path.strip_prefix(current_dir).unwrap_or(hex_path.as_path());
 
     // Retrieve real data size and SDK infos from ELF
     let infos = retrieve_infos(&exe_path).unwrap();
@@ -286,7 +328,7 @@ fn build_app(
             "curves": metadata_ledger.curve,
             "paths": metadata_ledger.path
         },
-        "binary": hex_file,
+        "binary": hex_file_relative,
         "dataSize": infos.size
     });
     // Ignore apiLevel for Nano S as it is unsupported for now
@@ -319,6 +361,7 @@ fn build_app(
     let exe_filename = exe_path.file_name().unwrap().to_str();
     let exe_parent = exe_path.parent().unwrap().to_path_buf();
     let apdu_file_path = output_dir.unwrap_or(exe_parent).join(exe_filename.unwrap()).with_extension("apdu");
+    //let apdu_file_path = output_dir.join(format!("{}.apdu",STANDARD_BIN_NAME));
     dump_with_ledgerctl(current_dir, &app_json, apdu_file_path.to_str().unwrap());
 
     if is_load {
