@@ -113,7 +113,13 @@ pub fn dump_with_ledgerctl(
 ) {
     let out = Command::new("ledgerctl")
         .current_dir(dir)
-        .args(["install", app_json.to_str().unwrap(), "-d", out_file_name])
+        .args([
+            "install",
+            app_json.to_str().unwrap(),
+            "-o",
+            out_file_name,
+            "-f",
+        ])
         .output()
         .expect("fail");
 
