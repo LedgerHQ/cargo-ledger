@@ -123,6 +123,26 @@ fn main() {
     }
 }
 
+fn find_remaining_arg(remaining_args: &Vec<String>, arg_to_find: &str) -> Option<String>
+{
+    let arg_with_prefix = String::from("--") + arg_to_find;
+    let arg_with_prefix_and_equal = arg_with_prefix.clone() + "=";
+    remaining_args
+    .iter()
+    .position(|arg| arg == &arg_with_prefix || arg.starts_with(&arg_with_prefix_and_equal))
+    .and_then(|index| {
+        let out_dir_arg = &remaining_args[index];
+        // Extracting the value from "--<arg>=<some value>" or "--<arg> <some value>"
+        if out_dir_arg.contains('=') {
+            Some(out_dir_arg.split('=').nth(1).unwrap().to_string())
+        } else {
+            remaining_args
+                .get(index + 1)
+                .map(|path_str| path_str.to_string())
+        }
+    })
+}
+
 fn retrieve_metadata(
     device: Device,
     manifest_path: Option<&str>,
@@ -230,8 +250,9 @@ fn build_app(
         Some(prebuilt) => prebuilt.canonicalize().unwrap(),
     };
 
+    let manifest_path = find_remaining_arg(&remaining_args, "manifest-path");
     let (this_pkg, metadata_ledger, metadata_device) =
-        retrieve_metadata(device, None);
+        retrieve_metadata(device, manifest_path.as_deref());
     let current_dir = this_pkg
         .manifest_path
         .parent()
@@ -301,20 +322,7 @@ fn build_app(
     // Use ledgerctl to dump the APDU installation file.
     // Either dump to the location provided by the --out-dir cargo
     // argument if provided or use the default binary path.
-    let output_dir: Option<PathBuf> = remaining_args
-        .iter()
-        .position(|arg| arg == "--out-dir" || arg.starts_with("--out-dir="))
-        .and_then(|index| {
-            let out_dir_arg = &remaining_args[index];
-            // Extracting the value from "--out-dir=<some value>" or "--out-dir <some value>"
-            if out_dir_arg.contains('=') {
-                Some(out_dir_arg.split('=').nth(1).unwrap().to_string())
-            } else {
-                remaining_args
-                    .get(index + 1)
-                    .map(|path_str| path_str.to_string())
-            }
-        })
+    let output_dir: Option<PathBuf> = find_remaining_arg(&remaining_args, "out-dir")
         .map(|path_str| PathBuf::from(path_str));
     let exe_filename = exe_path.file_name().unwrap().to_str();
     let exe_parent = exe_path.parent().unwrap().to_path_buf();
