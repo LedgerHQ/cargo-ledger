@@ -156,45 +156,15 @@ fn build_app(
 ) {
     let exe_path = match use_prebuilt {
         None => {
-            let c_sdk_path = match device {
-                Device::Nanosplus => std::env::var("NANOSP_SDK"),
-                Device::Nanox => std::env::var("NANOX_SDK"),
-                Device::Stax => std::env::var("STAX_SDK"),
-                Device::Flex => std::env::var("FLEX_SDK"),
-            };
-
             let mut args: Vec<String> = vec![];
-            match std::env::var("RUST_NIGHTLY") {
-                Ok(version) => {
-                    println!("Use Rust nightly toolchain: {}", version);
-                    args.push(format!("+{}", version))
-                }
-                Err(_) => {
-                    let rustup_cmd =
-                        Command::new("rustup").arg("default").output().unwrap();
-                    println!(
-                        "Use Rust default toolchain: {}",
-                        from_utf8(rustup_cmd.stdout.as_slice()).unwrap()
-                    );
-                }
-            }
+
+            args.push(String::from("+nightly-2024-12-01"));
             args.push(String::from("build"));
             args.push(String::from("--release"));
             args.push(format!("--target={}", device.as_ref()));
             args.push(String::from(
                 "--message-format=json-diagnostic-rendered-ansi",
             ));
-
-            match std::env::var("LEDGER_SDK_PATH") {
-                Ok(_) => (),
-                Err(_) => match c_sdk_path {
-                    Ok(path) => args.push(format!(
-                        "--config=env.LEDGER_SDK_PATH=\"{}\"",
-                        path
-                    )),
-                    Err(_) => println!("C SDK will have to be cloned"),
-                },
-            }
 
             let mut cargo_cmd = Command::new("cargo")
                 .args(args)
