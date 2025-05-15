@@ -1,0 +1,70 @@
+name: Publish to Crates.io
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:  # Allow manual workflow dispatch
+
+jobs:
+  dry-run-publish:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'  # Only run this job for manual triggers
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      - name: Test Dry-Run Publish for Each Package
+        run: |
+          last_published_version=$(cargo search -q --limit 1 cargo-ledger | grep -oP '\d+\.\d+\.\d+')
+          echo "Published version of cargo-ledger is $last_published_version"
+          manifest_version=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
+          echo "Current version in manifest is $manifest_version"
+          if [ "$last_published_version" == "$manifest_version" ]; then
+            echo "cargo-ledger is already published with version $manifest_version."
+          else
+            echo "cargo-ledger with version $manifest_version is not published."
+            echo "Publishing cargo-ledger..."
+            cargo publish --dry-run --no-verify --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --package "cargo-ledger"
+          fi   
+        env:
+          CARGO_TERM_COLOR: always
+        working-directory: ${{ github.workspace }}
+
+  crates-io-publish:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'  # Only run this job for pushes
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+      
+      - name: Publish Package on crates.io if required
+        run: |
+            last_published_version=$(cargo search -q --limit 1 cargo-ledger | grep -oP '\d+\.\d+\.\d+')
+            echo "Published version of cargo-ledger is $last_published_version"
+            manifest_version=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
+            echo "Current version in manifest is $manifest_version"
+            if [ "$last_published_version" == "$manifest_version" ]; then
+              echo "cargo-ledger is already published with version $manifest_version."
+            else
+              echo "cargo-ledger with version $manifest_version is not published."
+              echo "Publishing cargo-ledger..."
+              cargo publish --no-verify --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --package "cargo-ledger"
+            fi
+        env:
+          CARGO_TERM_COLOR: always
+        working-directory: ${{ github.workspace }}

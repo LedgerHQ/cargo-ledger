@@ -6,11 +6,12 @@ version = "0.0.0"
 name = "test"
 path = ""
 
-[package.metadata.nanos]
+[package.metadata.ledger]
 api_level = "1"
 name = "TestApp"
 curve = ["secp256k1"]
-flags = "0"
-icon = "nanos.gif"
-icon_small = "nanox.gif"
+flags = "0x38"
 path = ["'44/123"]
+
+[package.metadata.ledger.flex]
+icon = "./assets/flex.gif"
