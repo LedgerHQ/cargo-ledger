@@ -10,7 +10,8 @@ path = ""
 api_level = "1"
 name = "TestApp"
 curve = ["secp256k1"]
-flags = "0"
-nanosplus.icon = "nanosplus.gif"
-nanox.icon = "nanox.gif"
+flags = "0x38"
 path = ["'44/123"]
+
+[package.metadata.ledger.flex]
+icon = "./assets/flex.gif"

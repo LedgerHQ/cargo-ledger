@@ -17,3 +17,6 @@ icon = "./assets/nanox.gif"
 
 [package.metadata.ledger.nanosplus]
 icon = "./assets/nanosplus.gif"
+
+[package.metadata.ledger.flex]
+icon = "./assets/flex.gif"

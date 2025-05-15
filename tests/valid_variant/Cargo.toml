@@ -11,5 +11,6 @@ name = "TestApp"
 curve = ["secp256k1"]
 flags = "0x38"
 path = ["'44/123"]
-nanox.icon = "./assets/nanox.gif"
-nanosplus.icon = "./assets/nanosplus.gif"
+
+[package.metadata.ledger.flex]
+icon = "./assets/flex.gif"
