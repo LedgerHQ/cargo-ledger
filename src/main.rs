@@ -349,14 +349,15 @@ mod tests {
 
     #[test]
     fn valid_metadata() {
-        match retrieve_metadata(Device::Flex, Some("./tests/valid/Cargo.toml")) {
+        match retrieve_metadata(Device::Flex, Some("./tests/valid/Cargo.toml"))
+        {
             Ok(res) => {
                 let (_, metadata_ledger, _metadata_nanos) = res;
                 assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
-            },
+            }
             Err(_) => panic!("Failed to retrieve metadata"),
         };
     }
@@ -373,14 +374,13 @@ mod tests {
                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
-            },
+            }
             Err(_) => panic!("Failed to retrieve metadata"),
         };
     }
 
     #[test]
     fn valid_outdated_metadata() {
-
         match retrieve_metadata(
             Device::Flex,
             Some("./tests/valid_outdated/Cargo.toml"),
@@ -391,7 +391,7 @@ mod tests {
                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
-            },
+            }
             Err(_) => panic!("Failed to retrieve metadata"),
         };
     }
