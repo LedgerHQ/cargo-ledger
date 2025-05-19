@@ -1,28 +1,11 @@
 use std::path::Path;
 use std::process::Command;
-use std::str::from_utf8;
 
 pub fn install_targets() {
     println!("[ ] Install custom targets...");
     // Check if target files are installed
     let mut args: Vec<String> = vec![];
-    match std::env::var("RUST_NIGHTLY") {
-        Ok(version) => {
-            println!(
-                "Install custom targets for nightly toolchain: {}",
-                version
-            );
-            args.push(format!("+{}", version));
-        }
-        Err(_) => {
-            let rustup_cmd =
-                Command::new("rustup").arg("default").output().unwrap();
-            println!(
-                "Install custom targets for default toolchain {}",
-                from_utf8(rustup_cmd.stdout.as_slice()).unwrap()
-            );
-        }
-    }
+    args.push(String::from("+nightly-2024-12-01"));
     args.push(String::from("--print"));
     args.push(String::from("sysroot"));
     let sysroot_cmd = Command::new("rustc")
