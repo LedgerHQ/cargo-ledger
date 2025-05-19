@@ -3,7 +3,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
-use std::str::from_utf8;
 
 use cargo_metadata::{Message, Package};
 use clap::{Parser, Subcommand, ValueEnum};

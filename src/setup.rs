@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::process::Command;
-use std::str::from_utf8;
 
 pub fn install_targets() {
     println!("[ ] Install custom targets...");
