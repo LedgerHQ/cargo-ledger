@@ -19,6 +19,7 @@ mod utils;
 struct LedgerMetadata {
     curve: Vec<String>,
     path: Vec<String>,
+    path_slip21: Option<Vec<String>>,
     flags: Option<String>,
     name: Option<String>,
 }
@@ -261,7 +262,8 @@ fn build_app(
         "flags": flags,
         "derivationPath": {
             "curves": metadata_ledger.curve,
-            "paths": metadata_ledger.path
+            "paths": metadata_ledger.path,
+            "paths_slip21": metadata_ledger.path_slip21.as_ref().unwrap_or(&Vec::new())
         },
         "binary": hex_file,
         "dataSize": infos.size
@@ -326,6 +328,10 @@ mod tests {
                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
+                assert_eq!(
+                    metadata_ledger.path_slip21,
+                    Some(vec!["LEDGER".into()])
+                );
             }
             Err(_) => panic!("Failed to retrieve metadata"),
         };
@@ -343,6 +349,10 @@ mod tests {
                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
+                assert_eq!(
+                    metadata_ledger.path_slip21,
+                    Some(vec!["LEDGER".into()])
+                );
             }
             Err(_) => panic!("Failed to retrieve metadata"),
         };
@@ -360,6 +370,10 @@ mod tests {
                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
+                assert_eq!(
+                    metadata_ledger.path_slip21,
+                    Some(vec!["LEDGER".into()])
+                );
             }
             Err(_) => panic!("Failed to retrieve metadata"),
         };
