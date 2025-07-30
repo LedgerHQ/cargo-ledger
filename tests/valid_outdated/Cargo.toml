@@ -12,6 +12,7 @@ name = "TestApp"
 curve = ["secp256k1"]
 flags = "0x38"
 path = ["'44/123"]
+path_slip21 = ["LEDGER"]
 
 [package.metadata.ledger.flex]
 icon = "./assets/flex.gif"
