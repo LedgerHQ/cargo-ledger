@@ -55,6 +55,7 @@ enum Device {
     Nanosplus,
     Stax,
     Flex,
+    ApexP,
 }
 
 impl Display for Device {
@@ -70,6 +71,7 @@ impl AsRef<str> for Device {
             Device::Nanosplus => "nanosplus",
             Device::Stax => "stax",
             Device::Flex => "flex",
+            Device::ApexP => "apex_p"
         }
     }
 }
@@ -231,7 +233,7 @@ fn build_app(
             Some(flags) => match device {
                 // Modify flags to enable BLE if targeting Nano X
                 Device::Nanosplus => flags,
-                Device::Nanox | Device::Stax | Device::Flex => {
+                Device::Nanox | Device::Stax | Device::Flex | Device::ApexP => {
                     let base =
                         u32::from_str_radix(flags.trim_start_matches("0x"), 16)
                             .unwrap_or(0);
@@ -249,6 +251,7 @@ fn build_app(
         Device::Nanosplus => String::from("0x33100004"),
         Device::Stax => String::from("0x33200004"),
         Device::Flex => String::from("0x33300004"),
+        Device::ApexP => String::from("0x33400004"),
     };
 
     // create manifest
