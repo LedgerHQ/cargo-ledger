@@ -55,6 +55,7 @@ enum Device {
     Nanosplus,
     Stax,
     Flex,
+    #[clap(name = "apex_p")]
     ApexP,
 }
 
