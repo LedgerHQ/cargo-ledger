@@ -15,9 +15,11 @@ pub fn install_targets() {
         .stdout;
     let sysroot_cmd = std::str::from_utf8(&sysroot_cmd).unwrap().trim();
 
-    let target_files_url = Path::new(
-        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/y333/apex_support/ledger_secure_sdk_sys/devices"
+    let sys_crate_path = Path::new(
+        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/y333/apex_support/ledger_secure_sdk_sys"
     );
+
+    let target_files_url = sys_crate_path.join("devices");
     let sysroot = Path::new(sysroot_cmd).join("lib").join("rustlib");
 
     // Retrieve each target file independently
@@ -60,7 +62,7 @@ pub fn install_targets() {
         sysroot.join(&rust_lld_path[..end]).join(custom_link_script);
 
     /* Retrieve the linker script */
-    let target_url = target_files_url.join(custom_link_script);
+    let target_url = sys_crate_path.join(custom_link_script);
     Command::new("curl")
         .arg(target_url)
         .arg("-o")
