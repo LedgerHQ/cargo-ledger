@@ -19,7 +19,7 @@ pub fn install_targets() {
     let sysroot_cmd = std::str::from_utf8(&sysroot_cmd).unwrap().trim();
 
     let sys_crate_path = Path::new(
-        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/y333/apex_support/ledger_secure_sdk_sys"
+        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/master/ledger_secure_sdk_sys"
     );
 
     let target_files_url = sys_crate_path.join("devices");
