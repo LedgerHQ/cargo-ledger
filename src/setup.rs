@@ -5,7 +5,10 @@ pub fn install_targets() {
     println!("[ ] Install custom targets...");
     // Check if target files are installed
     let mut args: Vec<String> = vec![];
-    args.push(String::from("+nightly-2024-12-01"));
+
+    if let Ok(nightly) = std::env::var("RUST_NIGHTLY") {
+        args.push(format!("+{}", nightly));
+    }
     args.push(String::from("--print"));
     args.push(String::from("sysroot"));
     let sysroot_cmd = Command::new("rustc")
@@ -15,20 +18,23 @@ pub fn install_targets() {
         .stdout;
     let sysroot_cmd = std::str::from_utf8(&sysroot_cmd).unwrap().trim();
 
-    let target_files_url = Path::new(
-        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/tags/ledger_secure_sdk_sys%401.7.0/ledger_secure_sdk_sys"
+    let sys_crate_path = Path::new(
+        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/master/ledger_secure_sdk_sys"
     );
+
+    let target_files_url = sys_crate_path.join("devices");
     let sysroot = Path::new(sysroot_cmd).join("lib").join("rustlib");
 
     // Retrieve each target file independently
     // TODO: handle target.json modified upstream
-    for target in &["nanox", "nanosplus", "stax", "flex"] {
+    for target in &["nanox", "nanosplus", "stax", "flex", "apex_p"] {
         let outfilepath = sysroot.join(target).join("target.json");
         let targetpath =
             outfilepath.clone().into_os_string().into_string().unwrap();
         println!("* Adding \x1b[1;32m{target}\x1b[0m in \x1b[1;33m{targetpath}\x1b[0m");
 
-        let target_url = target_files_url.join(format!("{target}.json"));
+        let target_url =
+            target_files_url.join(format!("{target}/{target}.json"));
         let cmd = Command::new("curl")
             .arg(target_url)
             .arg("-o")
@@ -60,7 +66,7 @@ pub fn install_targets() {
         sysroot.join(&rust_lld_path[..end]).join(custom_link_script);
 
     /* Retrieve the linker script */
-    let target_url = target_files_url.join(custom_link_script);
+    let target_url = sys_crate_path.join(custom_link_script);
     Command::new("curl")
         .arg(target_url)
         .arg("-o")
