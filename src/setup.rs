@@ -33,7 +33,8 @@ pub fn install_targets() {
             outfilepath.clone().into_os_string().into_string().unwrap();
         println!("* Adding \x1b[1;32m{target}\x1b[0m in \x1b[1;33m{targetpath}\x1b[0m");
 
-        let target_url = target_files_url.join(format!("{target}/{target}.json"));
+        let target_url =
+            target_files_url.join(format!("{target}/{target}.json"));
         let cmd = Command::new("curl")
             .arg(target_url)
             .arg("-o")

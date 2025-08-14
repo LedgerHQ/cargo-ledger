@@ -72,7 +72,7 @@ impl AsRef<str> for Device {
             Device::Nanosplus => "nanosplus",
             Device::Stax => "stax",
             Device::Flex => "flex",
-            Device::ApexP => "apex_p"
+            Device::ApexP => "apex_p",
         }
     }
 }
