@@ -5,7 +5,10 @@ pub fn install_targets() {
     println!("[ ] Install custom targets...");
     // Check if target files are installed
     let mut args: Vec<String> = vec![];
-    args.push(String::from("+nightly-2024-12-01"));
+
+    if let Ok(nightly) = std::env::var("RUST_NIGHTLY") {
+        args.push(format!("+{}", nightly));
+    }
     args.push(String::from("--print"));
     args.push(String::from("sysroot"));
     let sysroot_cmd = Command::new("rustc")
