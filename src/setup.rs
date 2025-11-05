@@ -1,7 +1,8 @@
+use crate::error::LedgerError;
 use std::path::Path;
 use std::process::Command;
 
-pub fn install_targets() {
+pub fn install_targets() -> Result<(), LedgerError> {
     println!("[ ] Install custom targets...");
     // Check if target files are installed
     let mut args: Vec<String> = vec![];
@@ -11,12 +12,17 @@ pub fn install_targets() {
     }
     args.push(String::from("--print"));
     args.push(String::from("sysroot"));
-    let sysroot_cmd = Command::new("rustc")
-        .args(&args)
-        .output()
-        .expect("failed to call rustc")
-        .stdout;
-    let sysroot_cmd = std::str::from_utf8(&sysroot_cmd).unwrap().trim();
+    let sysroot_out = Command::new("rustc").args(&args).output()?;
+    if !sysroot_out.status.success() {
+        return Err(LedgerError::CommandFailure {
+            cmd: "rustc",
+            status: sysroot_out.status.code(),
+            stderr: String::from_utf8_lossy(&sysroot_out.stderr).into(),
+        });
+    }
+    let sysroot_cmd = std::str::from_utf8(&sysroot_out.stdout)
+        .map_err(|e| LedgerError::Other(format!("utf8 sysroot error: {e}")))?
+        .trim();
 
     let sys_crate_path = Path::new(
         "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/master/ledger_secure_sdk_sys"
@@ -30,7 +36,11 @@ pub fn install_targets() {
     for target in &["nanox", "nanosplus", "stax", "flex", "apex_p"] {
         let outfilepath = sysroot.join(target).join("target.json");
         let targetpath =
-            outfilepath.clone().into_os_string().into_string().unwrap();
+            outfilepath.clone().into_os_string().into_string().map_err(
+                |_| {
+                    LedgerError::Other("Invalid target path (non UTF-8)".into())
+                },
+            )?;
         println!("* Adding \x1b[1;32m{target}\x1b[0m in \x1b[1;33m{targetpath}\x1b[0m");
 
         let target_url =
@@ -40,8 +50,14 @@ pub fn install_targets() {
             .arg("-o")
             .arg(outfilepath)
             .arg("--create-dirs")
-            .output()
-            .expect("failed to execute 'curl'");
+            .output()?;
+        if !cmd.status.success() {
+            return Err(LedgerError::CommandFailure {
+                cmd: "curl",
+                status: cmd.status.code(),
+                stderr: String::from_utf8_lossy(&cmd.stderr).into(),
+            });
+        }
         println!("{}", std::str::from_utf8(&cmd.stderr).unwrap());
     }
 
@@ -55,31 +71,52 @@ pub fn install_targets() {
         .arg(sysroot_cmd)
         .arg("-name")
         .arg("rust-lld")
-        .output()
-        .expect("failed to find rust-lld linker")
-        .stdout;
+        .output()?;
+    if !cmd.status.success() {
+        return Err(LedgerError::CommandFailure {
+            cmd: "find",
+            status: cmd.status.code(),
+            stderr: String::from_utf8_lossy(&cmd.stderr).into(),
+        });
+    }
+    let cmd = cmd.stdout;
 
-    let rust_lld_path = std::str::from_utf8(&cmd).unwrap();
-    let end = rust_lld_path.rfind('/').unwrap();
+    let rust_lld_path = std::str::from_utf8(&cmd).map_err(|e| {
+        LedgerError::Other(format!("utf8 rust-lld path error: {e}"))
+    })?;
+    let end = rust_lld_path.rfind('/').ok_or(LedgerError::Other(
+        "Could not determine rust-lld directory".into(),
+    ))?;
 
     let outfilepath =
         sysroot.join(&rust_lld_path[..end]).join(custom_link_script);
 
     /* Retrieve the linker script */
-    let target_url = sys_crate_path.join(custom_link_script);
-    Command::new("curl")
+    let target_url = target_files_url.join(custom_link_script);
+    let curl_out = Command::new("curl")
         .arg(target_url)
         .arg("-o")
         .arg(&outfilepath)
-        .output()
-        .expect("failed to execute 'curl'");
+        .output()?;
+    if !curl_out.status.success() {
+        return Err(LedgerError::CommandFailure {
+            cmd: "curl",
+            status: curl_out.status.code(),
+            stderr: String::from_utf8_lossy(&curl_out.stderr).into(),
+        });
+    }
 
     println!("* Custom link script is {}", outfilepath.display());
 
     /* Make the linker script executable */
-    Command::new("chmod")
-        .arg("+x")
-        .arg(outfilepath)
-        .output()
-        .expect("failed to execute chmod");
+    let chmod_out =
+        Command::new("chmod").arg("+x").arg(&outfilepath).output()?;
+    if !chmod_out.status.success() {
+        return Err(LedgerError::CommandFailure {
+            cmd: "chmod",
+            status: chmod_out.status.code(),
+            stderr: String::from_utf8_lossy(&chmod_out.stderr).into(),
+        });
+    }
+    Ok(())
 }
