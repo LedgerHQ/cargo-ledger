@@ -1,6 +1,6 @@
 [package]
 name = "cargo-ledger"
-version = "1.9.0"
+version = "1.9.1"
 authors = ["Ledger"]
 description = "Build and sideload Ledger apps"
 categories = ["development-tools::cargo-plugins"]
