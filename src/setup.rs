@@ -92,7 +92,7 @@ pub fn install_targets() -> Result<(), LedgerError> {
         sysroot.join(&rust_lld_path[..end]).join(custom_link_script);
 
     /* Retrieve the linker script */
-    let target_url = target_files_url.join(custom_link_script);
+    let target_url = sys_crate_path.join(custom_link_script);
     let curl_out = Command::new("curl")
         .arg(target_url)
         .arg("-o")
