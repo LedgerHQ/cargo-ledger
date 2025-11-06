@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::PathBuf;
@@ -8,6 +9,9 @@ use cargo_metadata::{Message, Package};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_derive::Deserialize;
 use serde_json::json;
+
+mod error;
+use crate::error::LedgerError;
 
 use setup::install_targets;
 use utils::*;
@@ -95,24 +99,39 @@ enum MainCommand {
 }
 
 fn main() {
-    let Cli::Ledger(cli) = Cli::parse();
+    if let Err(e) = entrypoint() {
+        eprintln!("Error: {e}");
+        // Show source chain if any
+        let mut src = e.source();
+        while let Some(cause) = src {
+            eprintln!("  caused by: {cause}");
+            src = cause.source();
+        }
+        std::process::exit(1);
+    }
+}
 
+fn entrypoint() -> Result<(), LedgerError> {
+    let Cli::Ledger(cli) = Cli::parse();
     match cli.command {
-        MainCommand::Setup => install_targets(),
+        MainCommand::Setup => {
+            install_targets()?;
+        }
         MainCommand::Build {
             device: d,
             load: a,
             remaining_args: r,
         } => {
-            build_app(d, a, cli.use_prebuilt, r);
+            build_app(d, a, cli.use_prebuilt, r)?;
         }
     }
+    Ok(())
 }
 
 fn retrieve_metadata(
     device: Device,
     manifest_path: Option<&str>,
-) -> Result<(Package, LedgerMetadata, DeviceMetadata), ()> {
+) -> Result<(Package, LedgerMetadata, DeviceMetadata), LedgerError> {
     let mut cmd = cargo_metadata::MetadataCommand::new();
 
     // Only used during tests
@@ -120,34 +139,26 @@ fn retrieve_metadata(
         cmd = cmd.manifest_path(manifestpath).clone();
     }
 
-    let res = cmd
-        .no_deps()
-        .exec()
-        .expect("Could not execute `cargo metadata`");
+    let res = cmd.no_deps().exec()?;
 
-    let this_pkg = res.packages.last().unwrap();
+    let this_pkg = res.packages.last().ok_or(LedgerError::MissingPackage)?;
     let metadata_section = this_pkg.metadata.get("ledger");
 
-    if let Some(metadatasection) = metadata_section {
-        let metadata_device = metadata_section
-            .unwrap()
-            .clone()
-            .get(device.as_ref())
-            .unwrap()
-            .clone();
+    let Some(metadatasection) = metadata_section else {
+        return Err(LedgerError::MissingMetadataSection("ledger".to_string()));
+    };
+    let device_obj = metadatasection
+        .clone()
+        .get(device.as_ref())
+        .ok_or(LedgerError::MissingMetadataSection(
+            device.as_ref().to_string(),
+        ))?
+        .clone();
 
-        let ledger_metadata: LedgerMetadata =
-            serde_json::from_value(metadatasection.clone())
-                .expect("Could not deserialize medatada.ledger");
-        let device_metadata: DeviceMetadata =
-            serde_json::from_value(metadata_device)
-                .expect("Could not deserialize device medatada");
-
-        Ok((this_pkg.clone(), ledger_metadata, device_metadata))
-    } else {
-        println!("No metadata found for device: {}", device);
-        Err(())
-    }
+    let ledger_metadata: LedgerMetadata =
+        serde_json::from_value(metadatasection.clone())?;
+    let device_metadata: DeviceMetadata = serde_json::from_value(device_obj)?;
+    Ok((this_pkg.clone(), ledger_metadata, device_metadata))
 }
 
 fn build_app(
@@ -155,7 +166,7 @@ fn build_app(
     is_load: bool,
     use_prebuilt: Option<PathBuf>,
     remaining_args: Vec<String>,
-) {
+) -> Result<(), LedgerError> {
     let exe_path = match use_prebuilt {
         None => {
             let mut args: Vec<String> = vec![];
@@ -174,14 +185,17 @@ fn build_app(
                 .args(args)
                 .args(&remaining_args)
                 .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
+                .spawn()?;
 
             let mut exe_path = PathBuf::new();
-            let out = cargo_cmd.stdout.take().unwrap();
+            let out = cargo_cmd.stdout.take().ok_or_else(|| {
+                LedgerError::Other("Failed to take cargo stdout".into())
+            })?;
             let reader = std::io::BufReader::new(out);
             for message in Message::parse_stream(reader) {
-                match message.as_ref().unwrap() {
+                match message.map_err(|e| {
+                    LedgerError::Other(format!("Message stream error: {e}"))
+                })? {
                     Message::CompilerArtifact(artifact) => {
                         if let Some(n) = &artifact.executable {
                             exe_path = n.to_path_buf();
@@ -190,45 +204,52 @@ fn build_app(
                     Message::CompilerMessage(message) => {
                         println!("{message}");
                     }
-                    _ => (),
+                    _ => {}
                 }
             }
-
-            cargo_cmd.wait().expect("Couldn't get cargo's exit status");
+            let status = cargo_cmd.wait()?;
+            if !status.success() {
+                return Err(LedgerError::CommandFailure {
+                    cmd: "cargo build",
+                    status: status.code(),
+                    stderr: String::new(),
+                });
+            }
 
             exe_path
         }
-        Some(prebuilt) => prebuilt.canonicalize().unwrap(),
+        Some(prebuilt) => prebuilt.canonicalize()?,
     };
-
     let (this_pkg, metadata_ledger, metadata_device) =
-        retrieve_metadata(device, None).unwrap();
+        retrieve_metadata(device, None)?;
 
     let package_path = this_pkg
         .manifest_path
         .parent()
-        .expect("Could not find package's parent path");
+        .ok_or(LedgerError::MissingField("package parent path"))?;
 
     /* exe_path = "exe_parent" + "exe_name" */
-    let exe_name = exe_path.file_name().unwrap();
-    let exe_parent = exe_path.parent().unwrap();
-
-    let hex_file_abs = exe_path
+    let exe_name = exe_path
+        .file_name()
+        .ok_or(LedgerError::MissingField("exe file name"))?;
+    let exe_parent = exe_path
         .parent()
-        .unwrap()
-        .join(exe_name)
-        .with_extension("hex");
+        .ok_or(LedgerError::MissingField("exe parent"))?;
 
-    let hex_file = hex_file_abs.strip_prefix(exe_parent).unwrap();
+    let hex_file_abs = exe_parent.join(exe_name).with_extension("hex");
 
-    export_binary(&exe_path, &hex_file_abs);
+    let hex_file = hex_file_abs
+        .strip_prefix(exe_parent)
+        .map_err(|e| LedgerError::Other(format!("Strip prefix error: {e}")))?;
+
+    export_binary(&exe_path, &hex_file_abs)?;
 
     // app.json will be placed next to hex file
     let app_json_name = format!("app_{}.json", device.as_ref());
     let app_json = exe_parent.join(app_json_name);
 
     // Retrieve real data size and SDK infos from ELF
-    let infos = retrieve_infos(&exe_path).unwrap();
+    let infos = retrieve_infos(&exe_path)?;
 
     let flags = match metadata_device.flags {
         Some(flags) => flags,
@@ -258,7 +279,7 @@ fn build_app(
     };
 
     // create manifest
-    let file = fs::File::create(&app_json).unwrap();
+    let file = fs::File::create(&app_json)?;
     let mut json = json!({
         "name": metadata_ledger.name.as_ref().unwrap_or(&this_pkg.name),
         "version": &this_pkg.version,
@@ -274,14 +295,18 @@ fn build_app(
     });
 
     json["apiLevel"] = infos.api_level.into();
-    serde_json::to_writer_pretty(file, &json).unwrap();
+    serde_json::to_writer_pretty(file, &json)?;
 
     // Copy icon to the same directory as the app.json
     let icon_path = package_path.join(&metadata_device.icon);
-    let icon_dest =
-        exe_parent.join(&metadata_device.icon.split('/').last().unwrap());
-
-    fs::copy(icon_path, icon_dest).unwrap();
+    let icon_dest = exe_parent.join(
+        metadata_device
+            .icon
+            .split('/')
+            .last()
+            .ok_or(LedgerError::MissingField("icon file name"))?,
+    );
+    fs::copy(icon_path, icon_dest)?;
 
     // Use ledgerctl to dump the APDU installation file.
     // Either dump to the location provided by the --out-dir cargo
@@ -293,7 +318,7 @@ fn build_app(
             let out_dir_arg = &remaining_args[index];
             // Extracting the value from "--out-dir=<some value>" or "--out-dir <some value>"
             if out_dir_arg.contains('=') {
-                Some(out_dir_arg.split('=').nth(1).unwrap().to_string())
+                out_dir_arg.split('=').nth(1).map(|s| s.to_string())
             } else {
                 remaining_args
                     .get(index + 1)
@@ -301,21 +326,30 @@ fn build_app(
             }
         })
         .map(PathBuf::from);
-    let exe_filename = exe_path.file_name().unwrap().to_str();
-    let exe_parent = exe_path.parent().unwrap().to_path_buf();
+    let exe_filename = exe_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or(LedgerError::MissingField("exe filename str"))?;
+    let exe_parent = exe_path
+        .parent()
+        .ok_or(LedgerError::MissingField("exe parent"))?
+        .to_path_buf();
     let apdu_file_path = output_dir
         .unwrap_or(exe_parent)
-        .join(exe_filename.unwrap())
+        .join(exe_filename)
         .with_extension("apdu");
     dump_with_ledgerctl(
         package_path,
         &app_json,
-        apdu_file_path.to_str().unwrap(),
-    );
+        apdu_file_path
+            .to_str()
+            .ok_or(LedgerError::MissingField("apdu path"))?,
+    )?;
 
     if is_load {
-        install_with_ledgerctl(package_path, &app_json);
+        install_with_ledgerctl(package_path, &app_json)?;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -333,7 +367,7 @@ mod tests {
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
             }
-            Err(_) => panic!("Failed to retrieve metadata"),
+            Err(e) => panic!("Failed to retrieve metadata: {}", e),
         };
     }
 
@@ -350,7 +384,7 @@ mod tests {
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
             }
-            Err(_) => panic!("Failed to retrieve metadata"),
+            Err(e) => panic!("Failed to retrieve metadata: {}", e),
         };
     }
 
@@ -367,7 +401,7 @@ mod tests {
                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
                 assert_eq!(metadata_ledger.path, ["'44/123"]);
             }
-            Err(_) => panic!("Failed to retrieve metadata"),
+            Err(e) => panic!("Failed to retrieve metadata: {}", e),
         };
     }
 }

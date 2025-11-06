@@ -1,8 +1,9 @@
 use std::env;
 use std::fs;
-use std::io;
-use std::io::Write;
+use std::io::{self, Write};
 use std::process::Command;
+
+use crate::error::LedgerError;
 
 #[derive(Default, Debug)]
 pub struct LedgerAppInfos {
@@ -11,7 +12,10 @@ pub struct LedgerAppInfos {
     pub size: u64,
 }
 
-fn get_string_from_offset(vector: &[u8], offset: &usize) -> String {
+fn get_string_from_offset(
+    vector: &[u8],
+    offset: &usize,
+) -> Result<String, LedgerError> {
     // Find the end of the string (search for a line feed character)
     let end_index = vector[*offset..]
         .iter()
@@ -19,14 +23,14 @@ fn get_string_from_offset(vector: &[u8], offset: &usize) -> String {
         .map(|pos| *offset + pos)
         .unwrap_or(*offset); // Use the start offset if the delimiter position is not found
     String::from_utf8(vector[*offset..end_index].to_vec())
-        .expect("Invalid UTF-8")
+        .map_err(|e| LedgerError::Other(format!("Invalid UTF-8: {e}")))
 }
 
 pub fn retrieve_infos(
     file: &std::path::Path,
-) -> Result<LedgerAppInfos, io::Error> {
+) -> Result<LedgerAppInfos, LedgerError> {
     let buffer = fs::read(file)?;
-    let elf = goblin::elf::Elf::parse(&buffer).unwrap();
+    let elf = goblin::elf::Elf::parse(&buffer)?;
 
     let mut infos = LedgerAppInfos::default();
 
@@ -40,7 +44,7 @@ pub fn retrieve_infos(
                 infos.api_level = get_string_from_offset(
                     &buffer,
                     &(section.sh_offset as usize),
-                );
+                )?;
             } else if name == ".ledger.api_level" {
                 // For rust SDK <= 1.0.0, the API level is stored as a byte
                 infos.api_level =
@@ -49,7 +53,7 @@ pub fn retrieve_infos(
                 infos.target_id = Some(get_string_from_offset(
                     &buffer,
                     &(section.sh_offset as usize),
-                ));
+                )?);
             }
         }
     }
@@ -57,8 +61,12 @@ pub fn retrieve_infos(
     let mut nvram_data = 0;
     let mut envram_data = 0;
     for s in elf.syms.iter() {
-        let symbol_name = elf.strtab.get(s.st_name);
-        let name = symbol_name.unwrap().unwrap();
+        let symbol_name = elf
+            .strtab
+            .get(s.st_name)
+            .ok_or_else(|| LedgerError::Other("Missing symbol name".into()))?;
+        let name = symbol_name
+            .map_err(|e| LedgerError::Other(format!("Strtab error: {e}")))?;
         match name {
             "_nvram_data" => nvram_data = s.st_value,
             "_envram_data" => envram_data = s.st_value,
@@ -69,49 +77,68 @@ pub fn retrieve_infos(
     Ok(infos)
 }
 
-pub fn export_binary(elf_path: &std::path::Path, dest_bin: &std::path::Path) {
+pub fn export_binary(
+    elf_path: &std::path::Path,
+    dest_bin: &std::path::Path,
+) -> Result<(), LedgerError> {
     let objcopy = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_OBJCOPY")
         .unwrap_or_else(|| "arm-none-eabi-objcopy".into());
-
-    Command::new(objcopy)
+    let copy_out = Command::new(&objcopy)
         .arg(elf_path)
         .arg(dest_bin)
         .args(["-O", "ihex"])
-        .output()
-        .expect("Objcopy failed");
+        .output()?;
+    if !copy_out.status.success() {
+        return Err(LedgerError::CommandFailure {
+            cmd: "objcopy",
+            status: copy_out.status.code(),
+            stderr: String::from_utf8_lossy(&copy_out.stderr).into(),
+        });
+    }
 
     let size = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_SIZE")
         .unwrap_or_else(|| "arm-none-eabi-size".into());
 
     // print some size info while we're here
-    let out = Command::new(size)
-        .arg(elf_path)
-        .output()
-        .expect("Size failed");
+    let out = Command::new(&size).arg(elf_path).output()?;
+    if !out.status.success() {
+        return Err(LedgerError::CommandFailure {
+            cmd: "size",
+            status: out.status.code(),
+            stderr: String::from_utf8_lossy(&out.stderr).into(),
+        });
+    }
 
-    io::stdout().write_all(&out.stdout).unwrap();
-    io::stderr().write_all(&out.stderr).unwrap();
+    io::stdout().write_all(&out.stdout)?;
+    io::stderr().write_all(&out.stderr)?;
+    Ok(())
 }
 
 pub fn install_with_ledgerctl(
     dir: &std::path::Path,
     app_json: &std::path::Path,
-) {
+) -> Result<(), LedgerError> {
     let out = Command::new("ledgerctl")
         .current_dir(dir)
         .args(["install", "-f", app_json.to_str().unwrap()])
-        .output()
-        .expect("fail");
-
-    io::stdout().write_all(&out.stdout).unwrap();
-    io::stderr().write_all(&out.stderr).unwrap();
+        .output()?;
+    if !out.status.success() {
+        return Err(LedgerError::CommandFailure {
+            cmd: "ledgerctl",
+            status: out.status.code(),
+            stderr: String::from_utf8_lossy(&out.stderr).into(),
+        });
+    }
+    io::stdout().write_all(&out.stdout)?;
+    io::stderr().write_all(&out.stderr)?;
+    Ok(())
 }
 
 pub fn dump_with_ledgerctl(
     dir: &std::path::Path,
     app_json: &std::path::Path,
     out_file_name: &str,
-) {
+) -> Result<(), LedgerError> {
     let out = Command::new("ledgerctl")
         .current_dir(dir)
         .args([
@@ -121,9 +148,15 @@ pub fn dump_with_ledgerctl(
             out_file_name,
             "-f",
         ])
-        .output()
-        .expect("fail");
-
-    io::stdout().write_all(&out.stdout).unwrap();
-    io::stderr().write_all(&out.stderr).unwrap();
+        .output()?;
+    if !out.status.success() {
+        return Err(LedgerError::CommandFailure {
+            cmd: "ledgerctl",
+            status: out.status.code(),
+            stderr: String::from_utf8_lossy(&out.stderr).into(),
+        });
+    }
+    io::stdout().write_all(&out.stdout)?;
+    io::stderr().write_all(&out.stderr)?;
+    Ok(())
 }
