@@ -171,9 +171,6 @@ fn build_app(
         None => {
             let mut args: Vec<String> = vec![];
 
-            if let Ok(nightly) = std::env::var("RUST_NIGHTLY") {
-                args.push(format!("+{}", nightly));
-            }
             args.push(String::from("build"));
             args.push(String::from("--release"));
             args.push(format!("--target={}", device.as_ref()));

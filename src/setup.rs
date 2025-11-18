@@ -7,9 +7,6 @@ pub fn install_targets() -> Result<(), LedgerError> {
     // Check if target files are installed
     let mut args: Vec<String> = vec![];
 
-    if let Ok(nightly) = std::env::var("RUST_NIGHTLY") {
-        args.push(format!("+{}", nightly));
-    }
     args.push(String::from("--print"));
     args.push(String::from("sysroot"));
     let sysroot_out = Command::new("rustc").args(&args).output()?;
