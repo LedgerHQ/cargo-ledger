@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs;
+use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
@@ -98,6 +99,8 @@ enum MainCommand {
     },
 }
 
+const NIGHTLY_VERSION: &str = "nightly-2025-10-24";
+
 fn main() {
     if let Err(e) = entrypoint() {
         eprintln!("Error: {e}");
@@ -169,6 +172,31 @@ fn build_app(
 ) -> Result<(), LedgerError> {
     let exe_path = match use_prebuilt {
         None => {
+
+            let mut rustup_cmd = Command::new("rustup").args(&["show", "active-toolchain"])
+                .stdout(Stdio::piped())
+                .spawn()?;
+            let out = rustup_cmd.stdout.take().ok_or_else(|| {
+                LedgerError::Other("Failed to take rustup stdout".into())
+            })?;
+            // Read the output to get the toolchain name
+            let mut reader = std::io::BufReader::new(out);
+            let mut toolchain_name = String::new();
+            reader.read_line(&mut toolchain_name)?;
+            let toolchain_name = toolchain_name
+                .trim()
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.split('-').take(4).collect::<Vec<_>>().join("-").into())
+                .ok_or_else(|| LedgerError::Other("Failed to parse toolchain name".into()))?;
+            if toolchain_name != NIGHTLY_VERSION {
+                return Err(LedgerError::Other(format!(
+                    "Active toolchain '{}' does not match expected '{}'. Please set the correct toolchain using rust-toolchain.toml.",
+                    toolchain_name,
+                    NIGHTLY_VERSION
+                )));
+            }
+
             let mut args: Vec<String> = vec![];
 
             args.push(String::from("build"));
