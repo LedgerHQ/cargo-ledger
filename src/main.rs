@@ -176,6 +176,14 @@ fn build_app(
                 .args(&["show", "active-toolchain"])
                 .stdout(Stdio::piped())
                 .spawn()?;
+            let status = rustup_cmd.wait()?;
+            if !status.success() {
+                return Err(LedgerError::CommandFailure {
+                    cmd: "rustup show active-toolchain",
+                    status: status.code(),
+                    stderr: String::new(),
+                });
+            }
             let out = rustup_cmd.stdout.take().ok_or_else(|| {
                 LedgerError::Other("Failed to take rustup stdout".into())
             })?;
@@ -188,14 +196,14 @@ fn build_app(
                 .split_whitespace()
                 .next()
                 .and_then(|s| {
-                    s.split('-').take(4).collect::<Vec<_>>().join("-").into()
+                    Some(s.split('-').take(4).collect::<Vec<_>>().join("-"))
                 })
                 .ok_or_else(|| {
                     LedgerError::Other("Failed to parse toolchain name".into())
                 })?;
             if toolchain_name != NIGHTLY_VERSION {
                 return Err(LedgerError::Other(format!(
-                    "Active toolchain '{}' does not match expected '{}'. Please set the correct toolchain using rust-toolchain.toml.",
+                    "Active toolchain '{}' does not match expected '{}'. Please set the correct toolchain by creating your own rust-toolchain.toml file.",
                     toolchain_name,
                     NIGHTLY_VERSION
                 )));
