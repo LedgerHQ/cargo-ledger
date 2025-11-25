@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
@@ -172,45 +171,9 @@ fn build_app(
 ) -> Result<(), LedgerError> {
     let exe_path = match use_prebuilt {
         None => {
-            let mut rustup_cmd = Command::new("rustup")
-                .args(&["show", "active-toolchain"])
-                .stdout(Stdio::piped())
-                .spawn()?;
-            let status = rustup_cmd.wait()?;
-            if !status.success() {
-                return Err(LedgerError::CommandFailure {
-                    cmd: "rustup show active-toolchain",
-                    status: status.code(),
-                    stderr: String::new(),
-                });
-            }
-            let out = rustup_cmd.stdout.take().ok_or_else(|| {
-                LedgerError::Other("Failed to take rustup stdout".into())
-            })?;
-            // Read the output to get the toolchain name
-            let mut reader = std::io::BufReader::new(out);
-            let mut toolchain_name = String::new();
-            reader.read_line(&mut toolchain_name)?;
-            let toolchain_name = toolchain_name
-                .trim()
-                .split_whitespace()
-                .next()
-                .and_then(|s| {
-                    Some(s.split('-').take(4).collect::<Vec<_>>().join("-"))
-                })
-                .ok_or_else(|| {
-                    LedgerError::Other("Failed to parse toolchain name".into())
-                })?;
-            if toolchain_name != NIGHTLY_VERSION {
-                return Err(LedgerError::Other(format!(
-                    "Active toolchain '{}' does not match expected '{}'. Please set the correct toolchain by creating your own rust-toolchain.toml file.",
-                    toolchain_name,
-                    NIGHTLY_VERSION
-                )));
-            }
-
             let mut args: Vec<String> = vec![];
 
+            args.push(format!("+{}", NIGHTLY_VERSION));
             args.push(String::from("build"));
             args.push(String::from("--release"));
             args.push(format!("--target={}", device.as_ref()));
