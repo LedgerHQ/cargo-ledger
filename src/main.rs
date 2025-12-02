@@ -99,7 +99,7 @@ enum MainCommand {
     },
 }
 
-const NIGHTLY_VERSION: &str = "nightly-2024-12-01";
+const NIGHTLY_VERSION: &str = "nightly-2025-10-24";
 
 fn main() {
     if let Err(e) = entrypoint() {
