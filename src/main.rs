@@ -99,8 +99,6 @@ enum MainCommand {
     },
 }
 
-const NIGHTLY_VERSION: &str = "nightly-2025-10-24";
-
 fn main() {
     if let Err(e) = entrypoint() {
         eprintln!("Error: {e}");
@@ -174,7 +172,6 @@ fn build_app(
         None => {
             let mut args: Vec<String> = vec![];
 
-            args.push(format!("+{}", NIGHTLY_VERSION));
             args.push(String::from("build"));
             args.push(String::from("--release"));
             args.push(format!("--target={}", device.as_ref()));
