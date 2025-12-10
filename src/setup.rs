@@ -22,7 +22,7 @@ pub fn install_targets() -> Result<(), LedgerError> {
         .trim();
 
     let sys_crate_path = Path::new(
-        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/y333/nightly_support/ledger_secure_sdk_sys"
+        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/master/ledger_secure_sdk_sys"
     );
 
     let target_files_url = sys_crate_path.join("devices");
