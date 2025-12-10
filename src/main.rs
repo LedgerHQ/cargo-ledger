@@ -85,7 +85,11 @@ impl AsRef<str> for Device {
 #[derive(Subcommand, Debug)]
 enum MainCommand {
     #[clap(about = "install custom target files")]
-    Setup,
+    Setup {
+        #[clap(short, long)]
+        #[clap(help = "git tag or branch to use")]
+        tag: Option<String>,
+    },
     #[clap(about = "build the project for a given device")]
     Build {
         #[clap(value_enum)]
@@ -98,8 +102,6 @@ enum MainCommand {
         remaining_args: Vec<String>,
     },
 }
-
-const NIGHTLY_VERSION: &str = "nightly-2024-12-01";
 
 fn main() {
     if let Err(e) = entrypoint() {
@@ -117,8 +119,8 @@ fn main() {
 fn entrypoint() -> Result<(), LedgerError> {
     let Cli::Ledger(cli) = Cli::parse();
     match cli.command {
-        MainCommand::Setup => {
-            install_targets()?;
+        MainCommand::Setup { tag: t } => {
+            install_targets(t)?;
         }
         MainCommand::Build {
             device: d,
@@ -174,7 +176,6 @@ fn build_app(
         None => {
             let mut args: Vec<String> = vec![];
 
-            args.push(format!("+{}", NIGHTLY_VERSION));
             args.push(String::from("build"));
             args.push(String::from("--release"));
             args.push(format!("--target={}", device.as_ref()));
