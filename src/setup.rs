@@ -23,9 +23,7 @@ pub fn install_targets(t: Option<String>) -> Result<(), LedgerError> {
 
     let git_path = format!("https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/{}/ledger_secure_sdk_sys",
             t.unwrap_or_else(|| "refs/heads/master".to_string()));
-    let sys_crate_path = Path::new(
-        &git_path,
-    );
+    let sys_crate_path = Path::new(&git_path);
 
     let target_files_url = sys_crate_path.join("devices");
     let sysroot = Path::new(sysroot_cmd).join("lib").join("rustlib");

@@ -119,9 +119,7 @@ fn main() {
 fn entrypoint() -> Result<(), LedgerError> {
     let Cli::Ledger(cli) = Cli::parse();
     match cli.command {
-        MainCommand::Setup {
-            tag: t,
-        }=> {
+        MainCommand::Setup { tag: t } => {
             install_targets(t)?;
         }
         MainCommand::Build {
