@@ -85,7 +85,11 @@ impl AsRef<str> for Device {
 #[derive(Subcommand, Debug)]
 enum MainCommand {
     #[clap(about = "install custom target files")]
-    Setup,
+    Setup {
+        #[clap(short, long)]
+        #[clap(help = "git tag or branch to use")]
+        tag: Option<String>,
+    },
     #[clap(about = "build the project for a given device")]
     Build {
         #[clap(value_enum)]
@@ -115,8 +119,10 @@ fn main() {
 fn entrypoint() -> Result<(), LedgerError> {
     let Cli::Ledger(cli) = Cli::parse();
     match cli.command {
-        MainCommand::Setup => {
-            install_targets()?;
+        MainCommand::Setup {
+            tag: t,
+        }=> {
+            install_targets(t)?;
         }
         MainCommand::Build {
             device: d,

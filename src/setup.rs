@@ -2,7 +2,7 @@ use crate::error::LedgerError;
 use std::path::Path;
 use std::process::Command;
 
-pub fn install_targets() -> Result<(), LedgerError> {
+pub fn install_targets(t: Option<String>) -> Result<(), LedgerError> {
     println!("[ ] Install custom targets...");
     // Check if target files are installed
     let mut args: Vec<String> = vec![];
@@ -21,8 +21,10 @@ pub fn install_targets() -> Result<(), LedgerError> {
         .map_err(|e| LedgerError::Other(format!("utf8 sysroot error: {e}")))?
         .trim();
 
+    let git_path = format!("https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/{}/ledger_secure_sdk_sys",
+            t.unwrap_or_else(|| "refs/heads/master".to_string()));
     let sys_crate_path = Path::new(
-        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/refs/heads/master/ledger_secure_sdk_sys"
+        &git_path,
     );
 
     let target_files_url = sys_crate_path.join("devices");
