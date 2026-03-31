@@ -1,13 +1,13 @@
 [package]
 name = "cargo-ledger"
-version = "1.12.0"
+version = "1.13.0"
 authors = ["Ledger"]
 description = "Build and sideload Ledger apps"
 categories = ["development-tools::cargo-plugins"]
 repository = "https://github.com/LedgerHQ/cargo-ledger"
 readme = "README.md"
 license = "Apache-2.0"
-edition = "2018"
+edition = "2024"
 
 [dependencies]
 cargo_metadata = "0.23.1"
