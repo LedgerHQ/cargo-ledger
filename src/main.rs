@@ -200,7 +200,7 @@ fn build_app(
     lb_params.insert("targetId".to_string(), infos.target_id);
     lb_params.insert("apiLevel".to_string(), infos.api_level);
     lb_params.insert("flags".to_string(), infos.app_flags);
-    lb_params.insert("binary".to_string(), hex_path.into_string());
+    lb_params.insert("binary".to_string(), hex_path.clone().into_string());
     lb_params.insert("dataSize".to_string(), infos.data_size.to_string());
     lb_params.insert(
         "installParamsSize".to_string(),
@@ -212,6 +212,19 @@ fn build_app(
     if is_load {
         install_with_ledgerblue(package_path, &lb_params, &apdu_path)?;
     }
+
+    remaining_args.iter().find(|arg| arg.starts_with("--artifact-dir=")).and_then(|arg| {
+        let out_dir = arg.trim_start_matches("--artifact-dir=");
+        let out_path = Utf8PathBuf::from(out_dir).join(
+            hex_path.file_name().unwrap()
+        );
+        std::fs::copy(&hex_path, &out_path).ok()?;
+        let out_path = Utf8PathBuf::from(out_dir).join(
+            apdu_path.file_name().unwrap()
+        );
+        std::fs::copy(&apdu_path, &out_path).ok()?;
+        Some(())
+    });
 
     Ok(())
 }
