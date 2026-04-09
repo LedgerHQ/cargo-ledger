@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ledger"
-version = "1.12.1"
+version = "1.12.2"
 dependencies = [
  "cargo_metadata",
  "clap",
