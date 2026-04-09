@@ -43,6 +43,11 @@ pub fn install_targets(t: Option<String>) -> Result<(), LedgerError> {
         let target_url =
             target_files_url.join(format!("{target}/{target}.json"));
         let cmd = Command::new("curl")
+            .arg("--fail")
+            .arg("--retry")
+            .arg("3")
+            .arg("--retry-delay")
+            .arg("2")
             .arg(target_url)
             .arg("-o")
             .arg(outfilepath)
@@ -91,6 +96,11 @@ pub fn install_targets(t: Option<String>) -> Result<(), LedgerError> {
     /* Retrieve the linker script */
     let target_url = sys_crate_path.join(custom_link_script);
     let curl_out = Command::new("curl")
+        .arg("--fail")
+        .arg("--retry")
+        .arg("3")
+        .arg("--retry-delay")
+        .arg("2")
         .arg(target_url)
         .arg("-o")
         .arg(&outfilepath)
