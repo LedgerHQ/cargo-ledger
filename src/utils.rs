@@ -157,9 +157,11 @@ pub fn dump_with_ledgerblue(
         .args(["--fileName", params["binary"].as_str()])
         .args(["--appName", params["name"].as_str()])
         .args(["--appFlags", params["flags"].as_str()])
+        .arg("--delete")
+        .arg("--tlv")
         .args(["--dataSize", params["dataSize"].as_str()])
         .args(["--installparamsSize", params["installParamsSize"].as_str()])
-        .args(["--delete", "--tlv", "--offline", out_file_name.as_str()])
+        .args(["--offline", out_file_name.as_str()])
         .output()?;
     if !out.status.success() {
         return Err(LedgerError::CommandFailure {
