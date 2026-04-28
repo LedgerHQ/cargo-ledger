@@ -4,8 +4,8 @@ use std::fmt::{Display, Formatter};
 use std::process::Command;
 use std::process::Stdio;
 
-use cargo_metadata::camino::Utf8PathBuf;
 use cargo_metadata::Message;
+use cargo_metadata::camino::Utf8PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 
 mod error;
@@ -213,18 +213,19 @@ fn build_app(
         install_with_ledgerblue(package_path, &lb_params, &apdu_path)?;
     }
 
-    remaining_args.iter().find(|arg| arg.starts_with("--artifact-dir=")).and_then(|arg| {
-        let out_dir = arg.trim_start_matches("--artifact-dir=");
-        let out_path = Utf8PathBuf::from(out_dir).join(
-            hex_path.file_name().unwrap()
-        );
-        std::fs::copy(&hex_path, &out_path).ok()?;
-        let out_path = Utf8PathBuf::from(out_dir).join(
-            apdu_path.file_name().unwrap()
-        );
-        std::fs::copy(&apdu_path, &out_path).ok()?;
-        Some(())
-    });
+    remaining_args
+        .iter()
+        .find(|arg| arg.starts_with("--artifact-dir="))
+        .and_then(|arg| {
+            let out_dir = arg.trim_start_matches("--artifact-dir=");
+            let out_path =
+                Utf8PathBuf::from(out_dir).join(hex_path.file_name().unwrap());
+            std::fs::copy(&hex_path, &out_path).ok()?;
+            let out_path =
+                Utf8PathBuf::from(out_dir).join(apdu_path.file_name().unwrap());
+            std::fs::copy(&apdu_path, &out_path).ok()?;
+            Some(())
+        });
 
     Ok(())
 }

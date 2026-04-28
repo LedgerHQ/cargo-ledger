@@ -21,8 +21,10 @@ pub fn install_targets(t: Option<String>) -> Result<(), LedgerError> {
         .map_err(|e| LedgerError::Other(format!("utf8 sysroot error: {e}")))?
         .trim();
 
-    let git_path = format!("https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/{}/ledger_secure_sdk_sys",
-            t.unwrap_or_else(|| "refs/heads/master".to_string()));
+    let git_path = format!(
+        "https://raw.githubusercontent.com/LedgerHQ/ledger-device-rust-sdk/{}/ledger_secure_sdk_sys",
+        t.unwrap_or_else(|| "refs/heads/master".to_string())
+    );
     let sys_crate_path = Path::new(&git_path);
 
     let target_files_url = sys_crate_path.join("devices");
@@ -38,7 +40,9 @@ pub fn install_targets(t: Option<String>) -> Result<(), LedgerError> {
                     LedgerError::Other("Invalid target path (non UTF-8)".into())
                 },
             )?;
-        println!("* Adding \x1b[1;32m{target}\x1b[0m in \x1b[1;33m{targetpath}\x1b[0m");
+        println!(
+            "* Adding \x1b[1;32m{target}\x1b[0m in \x1b[1;33m{targetpath}\x1b[0m"
+        );
 
         let target_url =
             target_files_url.join(format!("{target}/{target}.json"));
