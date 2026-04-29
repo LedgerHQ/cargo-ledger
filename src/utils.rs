@@ -182,7 +182,7 @@ pub fn install_with_ledgerblue(
 ) -> Result<(), LedgerError> {
     let out = Command::new("python3")
         .current_dir(dir)
-        .args(["-m", "ledgerblue.RunScript"])
+        .args(["-m", "ledgerblue.runScript"])
         .args(["--targetId", params["targetId"].as_str()])
         .args(["--fileName", out_file_name.as_str()])
         .args(["--apdu", "--scp"])
