@@ -1,3 +1,6 @@
+use cargo_metadata::camino::Utf8Path;
+use cargo_metadata::camino::Utf8PathBuf;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -7,9 +10,13 @@ use crate::error::LedgerError;
 
 #[derive(Default, Debug)]
 pub struct LedgerAppInfos {
+    pub app_name: String,
+    pub app_version: String,
     pub api_level: String,
-    pub target_id: Option<String>,
-    pub size: u64,
+    pub app_flags: String,
+    pub target_id: String,
+    pub data_size: u64,
+    pub install_params_size: u64,
 }
 
 fn get_string_from_offset(
@@ -27,8 +34,9 @@ fn get_string_from_offset(
 }
 
 pub fn retrieve_infos(
-    file: &std::path::Path,
+    file: &Utf8PathBuf,
 ) -> Result<LedgerAppInfos, LedgerError> {
+    println!("Retrieving Ledger app infos from ELF: {}", file);
     let buffer = fs::read(file)?;
     let elf = goblin::elf::Elf::parse(&buffer)?;
 
@@ -38,48 +46,69 @@ pub fn retrieve_infos(
     // in various `.ledger.<field_name>` (rust SDK <= 1.0.0) or
     // `ledger.<field_name> (rust SDK > 1.0.0) section of the binary.
     for section in elf.section_headers.iter() {
-        if let Some(Ok(name)) = elf.shdr_strtab.get(section.sh_name) {
-            if name == "ledger.api_level" {
-                // For rust SDK > 1.0.0, the API level is stored as a string (like C SDK)
-                infos.api_level = get_string_from_offset(
-                    &buffer,
-                    &(section.sh_offset as usize),
-                )?;
-            } else if name == ".ledger.api_level" {
-                // For rust SDK <= 1.0.0, the API level is stored as a byte
-                infos.api_level =
-                    buffer[section.sh_offset as usize].to_string();
-            } else if name == "ledger.target_id" {
-                infos.target_id = Some(get_string_from_offset(
-                    &buffer,
-                    &(section.sh_offset as usize),
-                )?);
+        if let Some(name) = elf.shdr_strtab.get_at(section.sh_name) {
+            match name {
+                "ledger.app_name" => {
+                    infos.app_name = get_string_from_offset(
+                        &buffer,
+                        &(section.sh_offset as usize),
+                    )?;
+                }
+                "ledger.app_version" => {
+                    infos.app_version = get_string_from_offset(
+                        &buffer,
+                        &(section.sh_offset as usize),
+                    )?;
+                }
+                "ledger.api_level" => {
+                    infos.api_level = get_string_from_offset(
+                        &buffer,
+                        &(section.sh_offset as usize),
+                    )?;
+                }
+                "ledger.app_flags" => {
+                    infos.app_flags = get_string_from_offset(
+                        &buffer,
+                        &(section.sh_offset as usize),
+                    )?;
+                }
+                "ledger.target_id" => {
+                    infos.target_id = get_string_from_offset(
+                        &buffer,
+                        &(section.sh_offset as usize),
+                    )?;
+                }
+                _ => (),
             }
         }
     }
 
     let mut nvram_data = 0;
     let mut envram_data = 0;
+    let mut install_parameters_data = 0;
+    let mut einstall_parameters_data = 0;
     for s in elf.syms.iter() {
-        let symbol_name = elf
+        let name = elf
             .strtab
-            .get(s.st_name)
+            .get_at(s.st_name)
             .ok_or_else(|| LedgerError::Other("Missing symbol name".into()))?;
-        let name = symbol_name
-            .map_err(|e| LedgerError::Other(format!("Strtab error: {e}")))?;
         match name {
             "_nvram_data" => nvram_data = s.st_value,
             "_envram_data" => envram_data = s.st_value,
+            "_install_parameters" => install_parameters_data = s.st_value,
+            "_einstall_parameters" => einstall_parameters_data = s.st_value,
             _ => (),
         }
     }
-    infos.size = envram_data - nvram_data;
+    infos.data_size = envram_data - nvram_data;
+    infos.install_params_size =
+        einstall_parameters_data - install_parameters_data;
     Ok(infos)
 }
 
 pub fn export_binary(
-    elf_path: &std::path::Path,
-    dest_bin: &std::path::Path,
+    elf_path: &Utf8PathBuf,
+    dest_bin: &Utf8PathBuf,
 ) -> Result<(), LedgerError> {
     let objcopy = env::var_os("CARGO_TARGET_THUMBV6M_NONE_EABI_OBJCOPY")
         .unwrap_or_else(|| "arm-none-eabi-objcopy".into());
@@ -114,17 +143,29 @@ pub fn export_binary(
     Ok(())
 }
 
-pub fn install_with_ledgerctl(
-    dir: &std::path::Path,
-    app_json: &std::path::Path,
+pub fn dump_with_ledgerblue(
+    dir: &Utf8Path,
+    params: &HashMap<String, String>,
+    out_file_name: &Utf8PathBuf,
 ) -> Result<(), LedgerError> {
-    let out = Command::new("ledgerctl")
+    let out = Command::new("python3")
         .current_dir(dir)
-        .args(["install", "-f", app_json.to_str().unwrap()])
+        .args(["-m", "ledgerblue.loadApp"])
+        .args(["--targetId", params["targetId"].as_str()])
+        .args(["--targetVersion", ""])
+        .args(["--apiLevel", params["apiLevel"].as_str()])
+        .args(["--fileName", params["binary"].as_str()])
+        .args(["--appName", params["name"].as_str()])
+        .args(["--appFlags", params["flags"].as_str()])
+        .arg("--delete")
+        .arg("--tlv")
+        .args(["--dataSize", params["dataSize"].as_str()])
+        .args(["--installparamsSize", params["installParamsSize"].as_str()])
+        .args(["--offline", out_file_name.as_str()])
         .output()?;
     if !out.status.success() {
         return Err(LedgerError::CommandFailure {
-            cmd: "ledgerctl",
+            cmd: "python3 -m ledgerblue.loadApp",
             status: out.status.code(),
             stderr: String::from_utf8_lossy(&out.stderr).into(),
         });
@@ -134,24 +175,21 @@ pub fn install_with_ledgerctl(
     Ok(())
 }
 
-pub fn dump_with_ledgerctl(
-    dir: &std::path::Path,
-    app_json: &std::path::Path,
-    out_file_name: &str,
+pub fn install_with_ledgerblue(
+    dir: &Utf8Path,
+    params: &HashMap<String, String>,
+    out_file_name: &Utf8PathBuf,
 ) -> Result<(), LedgerError> {
-    let out = Command::new("ledgerctl")
+    let out = Command::new("python3")
         .current_dir(dir)
-        .args([
-            "install",
-            app_json.to_str().unwrap(),
-            "-o",
-            out_file_name,
-            "-f",
-        ])
+        .args(["-m", "ledgerblue.runScript"])
+        .args(["--targetId", params["targetId"].as_str()])
+        .args(["--fileName", out_file_name.as_str()])
+        .args(["--apdu", "--scp"])
         .output()?;
     if !out.status.success() {
         return Err(LedgerError::CommandFailure {
-            cmd: "ledgerctl",
+            cmd: "python3 -m ledgerblue.runScript",
             status: out.status.code(),
             stderr: String::from_utf8_lossy(&out.stderr).into(),
         });

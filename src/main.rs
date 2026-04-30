@@ -1,14 +1,12 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
-use cargo_metadata::{Message, Package};
+use cargo_metadata::Message;
+use cargo_metadata::camino::Utf8PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
-use serde_derive::Deserialize;
-use serde_json::json;
 
 mod error;
 use crate::error::LedgerError;
@@ -19,26 +17,11 @@ use utils::*;
 mod setup;
 mod utils;
 
-#[derive(Debug, Deserialize)]
-struct LedgerMetadata {
-    curve: Vec<String>,
-    path: Vec<String>,
-    path_slip21: Option<Vec<String>>,
-    flags: Option<String>,
-    name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct DeviceMetadata {
-    icon: String,
-    flags: Option<String>,
-}
-
 #[derive(Parser, Debug)]
 #[command(name = "cargo")]
 #[command(bin_name = "cargo")]
 #[clap(name = "Ledger devices build and load commands")]
-#[clap(version = "0.0")]
+#[clap(version = "1.13.0")]
 #[clap(about = "Builds the project and emits a JSON manifest for ledgerctl.")]
 enum Cli {
     Ledger(CliArgs),
@@ -46,10 +29,6 @@ enum Cli {
 
 #[derive(clap::Args, Debug)]
 struct CliArgs {
-    #[clap(long)]
-    #[clap(value_name = "prebuilt ELF exe")]
-    use_prebuilt: Option<PathBuf>,
-
     #[clap(subcommand)]
     command: MainCommand,
 }
@@ -127,296 +106,192 @@ fn entrypoint() -> Result<(), LedgerError> {
             load: a,
             remaining_args: r,
         } => {
-            build_app(d, a, cli.use_prebuilt, r)?;
+            build_app(d, a, r)?;
         }
     }
     Ok(())
-}
-
-fn retrieve_metadata(
-    device: Device,
-    manifest_path: Option<&str>,
-) -> Result<(Package, LedgerMetadata, DeviceMetadata), LedgerError> {
-    let mut cmd = cargo_metadata::MetadataCommand::new();
-
-    // Only used during tests
-    if let Some(manifestpath) = manifest_path {
-        cmd = cmd.manifest_path(manifestpath).clone();
-    }
-
-    let res = cmd.no_deps().exec()?;
-
-    let this_pkg = res.packages.last().ok_or(LedgerError::MissingPackage)?;
-    let metadata_section = this_pkg.metadata.get("ledger");
-
-    let Some(metadatasection) = metadata_section else {
-        return Err(LedgerError::MissingMetadataSection("ledger".to_string()));
-    };
-    let device_obj = metadatasection
-        .clone()
-        .get(device.as_ref())
-        .ok_or(LedgerError::MissingMetadataSection(
-            device.as_ref().to_string(),
-        ))?
-        .clone();
-
-    let ledger_metadata: LedgerMetadata =
-        serde_json::from_value(metadatasection.clone())?;
-    let device_metadata: DeviceMetadata = serde_json::from_value(device_obj)?;
-    Ok((this_pkg.clone(), ledger_metadata, device_metadata))
 }
 
 fn build_app(
     device: Device,
     is_load: bool,
-    use_prebuilt: Option<PathBuf>,
     remaining_args: Vec<String>,
 ) -> Result<(), LedgerError> {
-    let exe_path = match use_prebuilt {
-        None => {
-            let mut args: Vec<String> = vec![];
+    let elf_path = {
+        let mut args: Vec<String> = vec![];
 
-            args.push(String::from("build"));
-            args.push(String::from("--release"));
-            args.push(format!("--target={}", device.as_ref()));
-            args.push(String::from(
-                "--message-format=json-diagnostic-rendered-ansi",
-            ));
+        args.push(String::from("build"));
+        args.push(String::from("--release"));
+        args.push(format!("--target={}", device.as_ref()));
+        args.push(String::from(
+            "--message-format=json-diagnostic-rendered-ansi",
+        ));
 
-            let mut cargo_cmd = Command::new("cargo")
-                .args(args)
-                .args(&remaining_args)
-                .stdout(Stdio::piped())
-                .spawn()?;
+        let mut cargo_cmd = Command::new("cargo")
+            .args(args)
+            .args(&remaining_args)
+            .stdout(Stdio::piped())
+            .spawn()?;
 
-            let mut exe_path = PathBuf::new();
-            let out = cargo_cmd.stdout.take().ok_or_else(|| {
-                LedgerError::Other("Failed to take cargo stdout".into())
-            })?;
-            let reader = std::io::BufReader::new(out);
-            for message in Message::parse_stream(reader) {
-                match message.map_err(|e| {
-                    LedgerError::Other(format!("Message stream error: {e}"))
-                })? {
-                    Message::CompilerArtifact(artifact) => {
-                        if let Some(n) = &artifact.executable {
-                            exe_path = n.to_path_buf();
-                        }
+        let mut elf_path = Utf8PathBuf::new();
+        let out = cargo_cmd.stdout.take().ok_or_else(|| {
+            LedgerError::Other("Failed to take cargo stdout".into())
+        })?;
+        let reader = std::io::BufReader::new(out);
+        for message in Message::parse_stream(reader) {
+            match message.map_err(|e| {
+                LedgerError::Other(format!("Message stream error: {e}"))
+            })? {
+                Message::CompilerArtifact(artifact) => {
+                    if let Some(n) = &artifact.executable {
+                        elf_path = n.to_path_buf();
                     }
-                    Message::CompilerMessage(message) => {
-                        println!("{message}");
-                    }
-                    _ => {}
                 }
+                Message::CompilerMessage(message) => {
+                    println!("{message}");
+                }
+                _ => {}
             }
-            let status = cargo_cmd.wait()?;
-            if !status.success() {
-                return Err(LedgerError::CommandFailure {
-                    cmd: "cargo build",
-                    status: status.code(),
-                    stderr: String::new(),
-                });
-            }
-
-            exe_path
         }
-        Some(prebuilt) => prebuilt.canonicalize()?,
+        let status = cargo_cmd.wait()?;
+        if !status.success() {
+            return Err(LedgerError::CommandFailure {
+                cmd: "cargo build",
+                status: status.code(),
+                stderr: String::new(),
+            });
+        }
+        elf_path
     };
-    let (this_pkg, metadata_ledger, metadata_device) =
-        retrieve_metadata(device, None)?;
 
+    // Retrieve package path
+    let mut cmd = cargo_metadata::MetadataCommand::new();
+    let res = cmd.no_deps().exec()?;
+    let this_pkg = res.packages.last().ok_or(LedgerError::MissingPackage)?;
     let package_path = this_pkg
         .manifest_path
         .parent()
         .ok_or(LedgerError::MissingField("package parent path"))?;
 
-    /* exe_path = "exe_parent" + "exe_name" */
-    let exe_name = exe_path
-        .file_name()
-        .ok_or(LedgerError::MissingField("exe file name"))?;
-    let exe_parent = exe_path
-        .parent()
-        .ok_or(LedgerError::MissingField("exe parent"))?;
+    // Retrieve hex path and export binary
+    let hex_path = elf_path.with_extension("hex");
+    println!("Exporting binary from ELF {} to {}", elf_path, hex_path);
+    export_binary(&elf_path, &hex_path)?;
 
-    let hex_file_abs = exe_parent.join(exe_name).with_extension("hex");
-
-    let hex_file = hex_file_abs
-        .strip_prefix(exe_parent)
-        .map_err(|e| LedgerError::Other(format!("Strip prefix error: {e}")))?;
-
-    export_binary(&exe_path, &hex_file_abs)?;
-
-    // app.json will be placed next to hex file
-    let app_json_name = format!("app_{}.json", device.as_ref());
-    let app_json = exe_parent.join(app_json_name);
-
-    // Retrieve real data size and SDK infos from ELF
-    let infos = retrieve_infos(&exe_path)?;
-
-    let flags = match metadata_device.flags {
-        Some(flags) => flags,
-        None => match metadata_ledger.flags {
-            Some(flags) => match device {
-                // Modify flags to enable BLE if targeting Nano X
-                Device::Nanosplus => flags,
-                Device::Nanox | Device::Stax | Device::Flex | Device::ApexP => {
-                    let base =
-                        u32::from_str_radix(flags.trim_start_matches("0x"), 16)
-                            .unwrap_or(0);
-                    format!("0x{:x}", base | 0x200)
-                }
-            },
-            None => String::from("0x000"),
-        },
+    // Retrieve info from ELF
+    let mut infos = retrieve_infos(&elf_path)?;
+    println!("Retrieved ELF infos: {:?}", infos);
+    infos.app_flags = match device {
+        // Modify flags to enable BLE if targeting Nano X
+        Device::Nanosplus => infos.app_flags,
+        Device::Nanox | Device::Stax | Device::Flex | Device::ApexP => {
+            let base = u32::from_str_radix(
+                infos.app_flags.trim_start_matches("0x"),
+                16,
+            )
+            .unwrap_or(0);
+            format!("0x{:x}", base | 0x200)
+        }
     };
 
-    // Target ID according to target, in case it
-    // is not present in the retrieved ELF infos.
-    let backup_targetid: String = match device {
-        Device::Nanox => String::from("0x33000004"),
-        Device::Nanosplus => String::from("0x33100004"),
-        Device::Stax => String::from("0x33200004"),
-        Device::Flex => String::from("0x33300004"),
-        Device::ApexP => String::from("0x33400004"),
-    };
-
-    // create manifest
-    let file = fs::File::create(&app_json)?;
-    let mut json = json!({
-        "name": metadata_ledger.name.as_ref().unwrap_or(&this_pkg.name),
-        "version": &this_pkg.version,
-        "icon": metadata_device.icon,
-        "targetId": infos.target_id.unwrap_or(backup_targetid),
-        "flags": flags,
-        "derivationPath": {
-            "curves": metadata_ledger.curve,
-            "paths": metadata_ledger.path,
-            "paths_slip21": metadata_ledger.path_slip21.as_ref().unwrap_or(&Vec::new())
-        },
-        "binary": hex_file,
-        "dataSize": infos.size
-    });
-
-    json["apiLevel"] = infos.api_level.into();
-    serde_json::to_writer_pretty(file, &json)?;
-
-    // Copy icon to the same directory as the app.json
-    let icon_path = package_path.join(&metadata_device.icon);
-    let icon_dest = exe_parent.join(
-        metadata_device
-            .icon
-            .split('/')
-            .last()
-            .ok_or(LedgerError::MissingField("icon file name"))?,
+    // Dump with ledgerblue and optionally install
+    let mut lb_params: HashMap<String, String> = HashMap::new();
+    lb_params.insert("name".to_string(), infos.app_name);
+    lb_params.insert("targetId".to_string(), infos.target_id);
+    lb_params.insert("apiLevel".to_string(), infos.api_level);
+    lb_params.insert("flags".to_string(), infos.app_flags);
+    lb_params.insert("binary".to_string(), hex_path.clone().into_string());
+    lb_params.insert("dataSize".to_string(), infos.data_size.to_string());
+    lb_params.insert(
+        "installParamsSize".to_string(),
+        infos.install_params_size.to_string(),
     );
-    fs::copy(icon_path, icon_dest)?;
 
-    // Use ledgerctl to dump the APDU installation file.
-    // Either dump to the location provided by the --out-dir cargo
-    // argument if provided or use the default binary path.
-    let output_dir: Option<PathBuf> = remaining_args
-        .iter()
-        .position(|arg| arg == "--out-dir" || arg.starts_with("--out-dir="))
-        .and_then(|index| {
-            let out_dir_arg = &remaining_args[index];
-            // Extracting the value from "--out-dir=<some value>" or "--out-dir <some value>"
-            if out_dir_arg.contains('=') {
-                out_dir_arg.split('=').nth(1).map(|s| s.to_string())
-            } else {
-                remaining_args
-                    .get(index + 1)
-                    .map(|path_str| path_str.to_string())
-            }
-        })
-        .map(PathBuf::from);
-    let exe_filename = exe_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or(LedgerError::MissingField("exe filename str"))?;
-    let exe_parent = exe_path
-        .parent()
-        .ok_or(LedgerError::MissingField("exe parent"))?
-        .to_path_buf();
-    let apdu_file_path = output_dir
-        .unwrap_or(exe_parent)
-        .join(exe_filename)
-        .with_extension("apdu");
-    dump_with_ledgerctl(
-        package_path,
-        &app_json,
-        apdu_file_path
-            .to_str()
-            .ok_or(LedgerError::MissingField("apdu path"))?,
-    )?;
-
+    let apdu_path = elf_path.with_extension("apdu");
+    dump_with_ledgerblue(package_path, &lb_params, &apdu_path)?;
     if is_load {
-        install_with_ledgerctl(package_path, &app_json)?;
+        install_with_ledgerblue(package_path, &lb_params, &apdu_path)?;
     }
+
+    remaining_args
+        .iter()
+        .find(|arg| arg.starts_with("--artifact-dir="))
+        .and_then(|arg| {
+            let out_dir = arg.trim_start_matches("--artifact-dir=");
+            let out_path =
+                Utf8PathBuf::from(out_dir).join(hex_path.file_name().unwrap());
+            std::fs::copy(&hex_path, &out_path).ok()?;
+            let out_path =
+                Utf8PathBuf::from(out_dir).join(apdu_path.file_name().unwrap());
+            std::fs::copy(&apdu_path, &out_path).ok()?;
+            Some(())
+        });
+
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    #[test]
-    fn valid_metadata() {
-        match retrieve_metadata(Device::Flex, Some("./tests/valid/Cargo.toml"))
-        {
-            Ok(res) => {
-                let (_, metadata_ledger, _metadata_nanos) = res;
-                assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
-                assert_eq!(metadata_ledger.curve, ["secp256k1"]);
-                assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
-                assert_eq!(metadata_ledger.path, ["'44/123"]);
-                assert_eq!(
-                    metadata_ledger.path_slip21,
-                    Some(vec!["LEDGER".into()])
-                );
-            }
-            Err(e) => panic!("Failed to retrieve metadata: {}", e),
-        };
-    }
+//     #[test]
+//     fn valid_metadata() {
+//         match retrieve_metadata(Device::Flex, Some("./tests/valid/Cargo.toml"))
+//         {
+//             Ok(res) => {
+//                 let (_, metadata_ledger, _metadata_nanos) = res;
+//                 assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
+//                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
+//                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
+//                 assert_eq!(metadata_ledger.path, ["'44/123"]);
+//                 assert_eq!(
+//                     metadata_ledger.path_slip21,
+//                     Some(vec!["LEDGER".into()])
+//                 );
+//             }
+//             Err(e) => panic!("Failed to retrieve metadata: {}", e),
+//         };
+//     }
 
-    #[test]
-    fn valid_metadata_variant() {
-        match retrieve_metadata(
-            Device::Flex,
-            Some("./tests/valid_variant/Cargo.toml"),
-        ) {
-            Ok(res) => {
-                let (_, metadata_ledger, _metadata_nanos) = res;
-                assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
-                assert_eq!(metadata_ledger.curve, ["secp256k1"]);
-                assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
-                assert_eq!(metadata_ledger.path, ["'44/123"]);
-                assert_eq!(
-                    metadata_ledger.path_slip21,
-                    Some(vec!["LEDGER".into()])
-                );
-            }
-            Err(e) => panic!("Failed to retrieve metadata: {}", e),
-        };
-    }
+//     #[test]
+//     fn valid_metadata_variant() {
+//         match retrieve_metadata(
+//             Device::Flex,
+//             Some("./tests/valid_variant/Cargo.toml"),
+//         ) {
+//             Ok(res) => {
+//                 let (_, metadata_ledger, _metadata_nanos) = res;
+//                 assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
+//                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
+//                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
+//                 assert_eq!(metadata_ledger.path, ["'44/123"]);
+//                 assert_eq!(
+//                     metadata_ledger.path_slip21,
+//                     Some(vec!["LEDGER".into()])
+//                 );
+//             }
+//             Err(e) => panic!("Failed to retrieve metadata: {}", e),
+//         };
+//     }
 
-    #[test]
-    fn valid_outdated_metadata() {
-        match retrieve_metadata(
-            Device::Flex,
-            Some("./tests/valid_outdated/Cargo.toml"),
-        ) {
-            Ok(res) => {
-                let (_, metadata_ledger, _metadata_nanos) = res;
-                assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
-                assert_eq!(metadata_ledger.curve, ["secp256k1"]);
-                assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
-                assert_eq!(metadata_ledger.path, ["'44/123"]);
-                assert_eq!(
-                    metadata_ledger.path_slip21,
-                    Some(vec!["LEDGER".into()])
-                );
-            }
-            Err(e) => panic!("Failed to retrieve metadata: {}", e),
-        };
-    }
-}
+//     #[test]
+//     fn valid_outdated_metadata() {
+//         match retrieve_metadata(
+//             Device::Flex,
+//             Some("./tests/valid_outdated/Cargo.toml"),
+//         ) {
+//             Ok(res) => {
+//                 let (_, metadata_ledger, _metadata_nanos) = res;
+//                 assert_eq!(metadata_ledger.name, Some("TestApp".to_string()));
+//                 assert_eq!(metadata_ledger.curve, ["secp256k1"]);
+//                 assert_eq!(metadata_ledger.flags, Some(String::from("0x38")));
+//                 assert_eq!(metadata_ledger.path, ["'44/123"]);
+//                 assert_eq!(
+//                     metadata_ledger.path_slip21,
+//                     Some(vec!["LEDGER".into()])
+//                 );
+//             }
+//             Err(e) => panic!("Failed to retrieve metadata: {}", e),
+//         };
+//     }
+// }
