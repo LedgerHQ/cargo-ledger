@@ -172,6 +172,23 @@ pub fn dump_with_ledgerblue(
     }
     io::stdout().write_all(&out.stdout)?;
     io::stderr().write_all(&out.stderr)?;
+
+    // Extract the application hash printed by ledgerblue on stdout and store it
+    // in a .sha256 file next to the .apdu file.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if let Some(hash) = stdout.lines().find_map(|line| {
+        line.strip_prefix("Application full hash :")
+            .map(|hash| hash.trim())
+    }) {
+        let sha256_path = out_file_name.with_extension("sha256");
+        fs::write(&sha256_path, format!("{hash}\n"))?;
+    } else {
+        eprintln!(
+            "Warning: could not find 'Application full hash' in ledgerblue output, \
+             skipping .sha256 file generation"
+        );
+    }
+
     Ok(())
 }
 
