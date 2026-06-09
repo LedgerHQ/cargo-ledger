@@ -22,7 +22,9 @@ mod utils;
 #[command(bin_name = "cargo")]
 #[clap(name = "Ledger devices build and load commands")]
 #[clap(version = "1.13.0")]
-#[clap(about = "Builds the project and emits a JSON manifest for ledgerctl.")]
+#[clap(
+    about = "Builds the project and generates the APDU file with ledgerblue."
+)]
 enum Cli {
     Ledger(CliArgs),
 }
