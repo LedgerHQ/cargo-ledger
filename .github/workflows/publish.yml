@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - mbr/fix-cargo-publish
 
 permissions:
   contents: read
@@ -12,7 +13,7 @@ permissions:
 jobs:
   publish_crate:
     name: Publish rust crate
-    uses: LedgerHQ/ledger-app-workflows/.github/workflows/reusable_crates_deployment.yml@v1
+    uses: LedgerHQ/ledger-app-workflows/.github/workflows/reusable_crates_deployment.yml@mbr/update-crate-deployment
     permissions:
       id-token: write
       attestations: write
