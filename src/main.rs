@@ -179,20 +179,8 @@ fn build_app(
     export_binary(&elf_path, &hex_path)?;
 
     // Retrieve info from ELF
-    let mut infos = retrieve_infos(&elf_path)?;
+    let infos = retrieve_infos(&elf_path)?;
     println!("Retrieved ELF infos: {:?}", infos);
-    infos.app_flags = match device {
-        // Modify flags to enable BLE if targeting Nano X
-        Device::Nanosplus => infos.app_flags,
-        Device::Nanox | Device::Stax | Device::Flex | Device::ApexP => {
-            let base = u32::from_str_radix(
-                infos.app_flags.trim_start_matches("0x"),
-                16,
-            )
-            .unwrap_or(0);
-            format!("0x{:x}", base | 0x200)
-        }
-    };
 
     // Dump with ledgerblue and optionally install
     let mut lb_params: HashMap<String, String> = HashMap::new();
