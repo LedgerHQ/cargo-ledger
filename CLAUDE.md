@@ -31,7 +31,7 @@ Devices: `nanox`, `nanosplus`, `stax`, `flex`, `apex_p`.
 
 Arguments after `--` are forwarded to the underlying `cargo build`, e.g.:
 ```sh
-cargo ledger build nanosplus --load -- --features one -Z unstable-options --out-dir ./output/
+cargo ledger build nanosplus --load -- --features one -Z unstable-options --artifact-dir ./output/
 ```
 A `--artifact-dir=<dir>` argument in the forwarded args triggers copying of the `.hex`, `.apdu`, and `.sha256` outputs into that directory.
 

@@ -21,7 +21,7 @@ mod utils;
 #[command(name = "cargo")]
 #[command(bin_name = "cargo")]
 #[clap(name = "Ledger devices build and load commands")]
-#[clap(version = "1.13.0")]
+#[clap(version = env!("CARGO_PKG_VERSION"))]
 #[clap(
     about = "Builds the project and generates the APDU file with ledgerblue."
 )]
