@@ -13,6 +13,10 @@ jobs:
   publish_crate:
     name: Publish rust crate
     uses: LedgerHQ/ledger-app-workflows/.github/workflows/reusable_crates_deployment.yml@v1
+    permissions:
+      id-token: write
+      attestations: write
+      contents: write
     with:
       publish: true
       release: false
