@@ -21,8 +21,10 @@ mod utils;
 #[command(name = "cargo")]
 #[command(bin_name = "cargo")]
 #[clap(name = "Ledger devices build and load commands")]
-#[clap(version = "1.13.0")]
-#[clap(about = "Builds the project and emits a JSON manifest for ledgerctl.")]
+#[clap(version = env!("CARGO_PKG_VERSION"))]
+#[clap(
+    about = "Builds the project and generates the APDU file with ledgerblue."
+)]
 enum Cli {
     Ledger(CliArgs),
 }
@@ -212,6 +214,12 @@ fn build_app(
             let out_path =
                 Utf8PathBuf::from(out_dir).join(apdu_path.file_name().unwrap());
             std::fs::copy(&apdu_path, &out_path).ok()?;
+            let sha256_path = apdu_path.with_extension("sha256");
+            if sha256_path.exists() {
+                let out_path = Utf8PathBuf::from(out_dir)
+                    .join(sha256_path.file_name().unwrap());
+                std::fs::copy(&sha256_path, &out_path).ok()?;
+            }
             Some(())
         });
 
