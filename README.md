@@ -33,10 +33,20 @@ General usage is displayed when invoking `cargo ledger`.
 
 ### Setup
 
-This will install custom target files from the SDK directly into your environment.
+This installs the custom target files and the `link_wrap.sh` linker script into the sysroot of the active Rust toolchain.
 
 ```
 cargo ledger setup
+```
+
+By default they are taken from the latest release of the [`ledger_secure_sdk_sys`](https://crates.io/crates/ledger_secure_sdk_sys) crate on crates.io; the downloaded crate is checked against the checksum published in the crates.io index. Other sources:
+
+```
+# A specific ledger_secure_sdk_sys release (recommended for reproducible environments such as Docker images)
+cargo ledger setup --sys-version 1.18.1
+
+# A git tag or branch of the Rust SDK repository
+cargo ledger setup -t <git-ref>
 ```
 
 ### Building

@@ -1,6 +1,6 @@
 [package]
 name = "cargo-ledger"
-version = "1.14.0"
+version = "1.15.0"
 authors = ["Ledger"]
 description = "Build and sideload Ledger apps"
 categories = ["development-tools::cargo-plugins"]
@@ -13,3 +13,5 @@ edition = "2024"
 cargo_metadata = "0.23.1"
 clap = { version = "4.1.8", features = ["derive"] }
 goblin = "0.10.5"
+serde_json = "1"
+sha2 = "0.10"
