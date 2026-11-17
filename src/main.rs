@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 mod error;
 use crate::error::LedgerError;
 
-use setup::install_targets;
+use setup::{TargetSource, install_targets};
 use utils::*;
 
 mod setup;
@@ -65,11 +65,19 @@ impl AsRef<str> for Device {
 
 #[derive(Subcommand, Debug)]
 enum MainCommand {
-    #[clap(about = "install custom target files")]
+    #[clap(
+        about = "install custom target files",
+        long_about = "Install the custom target specs and link_wrap.sh into the active toolchain's sysroot.\n\nBy default they are taken from the latest release of the ledger_secure_sdk_sys crate on crates.io (checksum-verified). Use --sys-version to pin a release, or --tag to take them from a git ref of the Rust SDK repository instead."
+    )]
     Setup {
-        #[clap(short, long)]
-        #[clap(help = "git tag or branch to use")]
+        #[clap(short, long, conflicts_with = "sys_version")]
+        #[clap(help = "git tag or branch of the Rust SDK repository to use")]
         tag: Option<String>,
+        #[clap(long, value_name = "VERSION")]
+        #[clap(
+            help = "ledger_secure_sdk_sys release to use (default: latest on crates.io)"
+        )]
+        sys_version: Option<String>,
     },
     #[clap(about = "build the project for a given device")]
     Build {
@@ -100,8 +108,12 @@ fn main() {
 fn entrypoint() -> Result<(), LedgerError> {
     let Cli::Ledger(cli) = Cli::parse();
     match cli.command {
-        MainCommand::Setup { tag: t } => {
-            install_targets(t)?;
+        MainCommand::Setup { tag, sys_version } => {
+            let source = match tag {
+                Some(git_ref) => TargetSource::GitRef(git_ref),
+                None => TargetSource::CratesIo(sys_version),
+            };
+            install_targets(source)?;
         }
         MainCommand::Build {
             device: d,
