@@ -90,11 +90,6 @@ enum MainCommand {
         #[clap(short, long)]
         #[clap(help = "load on a device")]
         load: bool,
-        #[clap(long)]
-        #[clap(
-            help = "build with the built-in Rust triple of the device instead of its custom target spec"
-        )]
-        builtin_target: bool,
         #[clap(last = true)]
         remaining_args: Vec<String>,
     },
@@ -126,10 +121,9 @@ fn entrypoint() -> Result<(), LedgerError> {
         MainCommand::Build {
             device: d,
             load: a,
-            builtin_target: b,
             remaining_args: r,
         } => {
-            build_app(d, a, b, r)?;
+            build_app(d, a, r)?;
         }
     }
     Ok(())
@@ -138,7 +132,6 @@ fn entrypoint() -> Result<(), LedgerError> {
 fn build_app(
     device: Device,
     is_load: bool,
-    builtin_target: bool,
     remaining_args: Vec<String>,
 ) -> Result<(), LedgerError> {
     // Retrieve package path and target directory
@@ -151,10 +144,11 @@ fn build_app(
         .ok_or(LedgerError::MissingField("package parent path"))?;
 
     let build_target =
-        BuildTarget::new(device, builtin_target, &res.target_directory);
+        BuildTarget::new(device, &this_pkg.metadata, &res.target_directory);
     println!(
-        "Building for target {} with rustflags {:?}",
-        build_target.target, build_target.rustflags
+        "Building for target {} {}",
+        build_target.target,
+        build_target.cargo_args.join(" ")
     );
 
     let elf_path = {
@@ -163,9 +157,7 @@ fn build_app(
         args.push(String::from("build"));
         args.push(String::from("--release"));
         args.push(format!("--target={}", build_target.target));
-        if let Some(dir) = &build_target.target_dir {
-            args.push(format!("--target-dir={dir}"));
-        }
+        args.extend(build_target.cargo_args);
         args.push(String::from(
             "--message-format=json-diagnostic-rendered-ansi",
         ));
@@ -173,11 +165,6 @@ fn build_app(
         let mut cargo_cmd = Command::new("cargo")
             .args(args)
             .args(&remaining_args)
-            .env(
-                "CARGO_ENCODED_RUSTFLAGS",
-                build_target.rustflags.join("\x1f"),
-            )
-            .env_remove("RUSTFLAGS")
             .stdout(Stdio::piped())
             .spawn()?;
 

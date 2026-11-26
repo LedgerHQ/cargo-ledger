@@ -1,13 +1,18 @@
-//! How an app is built for a device: either with the device's custom target
-//! spec (installed by `cargo ledger setup`), or with the built-in Rust triple
-//! of its CPU plus the settings that the custom spec carries.
+//! How an app is built for a device: with the device's custom target spec
+//! (installed by `cargo ledger setup`), or, when the app opts in with
+//! `builtin_target = true` in `[package.metadata.ledger]`, with the built-in
+//! Rust triple of its CPU plus the settings that the custom spec carries.
 //!
-//! In both cases the device is also exposed to the code as the
-//! `ledger_device` cfg, so that apps can stop relying on `target_os`.
-
-use std::process::Command;
+//! In built-in mode the settings go to `build.rustflags` through `--config`.
+//! Cargo merges arrays across config sources, so they are added to the
+//! app's own `[build] rustflags`. Per-device flags of the app, which the
+//! triple cannot select, come from `[package.metadata.ledger.<device>]
+//! rustflags`. A `[target.<triple>]` or `[target.'cfg(..)']` rustflags
+//! section, or `RUSTFLAGS`, would replace these flags: the SDK's build
+//! script then fails, as the `ledger_device` cfg is missing.
 
 use cargo_metadata::camino::{Utf8Path, Utf8PathBuf};
+use serde_json::Value;
 
 use crate::Device;
 
@@ -27,101 +32,124 @@ impl Device {
 pub struct BuildTarget {
     /// Value of `--target`.
     pub target: String,
-    /// Value of `--target-dir`, when the default one cannot be used.
-    pub target_dir: Option<Utf8PathBuf>,
+    /// Extra `cargo build` arguments (`--target-dir`, `--config`).
+    pub cargo_args: Vec<String>,
     /// Directory where the ELF is expected by the rest of the tooling
     /// (`<target-dir>/<device>/release`), when Cargo puts it elsewhere.
     pub release_dir: Option<Utf8PathBuf>,
-    /// Rustflags of the build, to pass as `CARGO_ENCODED_RUSTFLAGS`.
-    pub rustflags: Vec<String>,
 }
 
 impl BuildTarget {
-    pub fn new(device: Device, builtin: bool, target_dir: &Utf8Path) -> Self {
-        let mut rustflags = user_rustflags(device);
-        if builtin {
-            // Settings of the custom target spec that differ from the
-            // built-in triple.
+    /// `metadata` is the `package.metadata` value of the app.
+    pub fn new(
+        device: Device,
+        metadata: &Value,
+        target_dir: &Utf8Path,
+    ) -> Self {
+        let ledger = &metadata["ledger"];
+        if ledger["builtin_target"].as_bool() != Some(true) {
+            return BuildTarget {
+                target: device.to_string(),
+                cargo_args: vec![],
+                release_dir: None,
+            };
+        }
+
+        // Settings of the custom target spec that the triple lacks.
+        let mut rustflags: Vec<String> = [
+            "-Crelocation-model=ropi-rwpi",
+            "-Clinker=link_wrap.sh",
+            &format!("-Clink-arg=-T{device}_layout.ld"),
+            "-Clink-arg=-Tlink.ld",
+            "-Clink-arg=--wrap=__stack_chk_fail",
+            "-Clink-arg=--wrap=__stack_chk_init",
+            &format!("--cfg=ledger_device=\"{device}\""),
+        ]
+        .map(String::from)
+        .into();
+        if let Some(flags) = ledger[device.as_ref()]["rustflags"].as_array() {
             rustflags.extend(
-                [
-                    "-Crelocation-model=ropi-rwpi",
-                    "-Clinker=link_wrap.sh",
-                    &format!("-Clink-arg=-T{device}_layout.ld"),
-                    "-Clink-arg=-Tlink.ld",
-                    "-Clink-arg=--wrap=__stack_chk_fail",
-                    "-Clink-arg=--wrap=__stack_chk_init",
-                ]
-                .map(String::from),
+                flags.iter().filter_map(|f| f.as_str().map(String::from)),
             );
         }
-        rustflags.push(format!("--cfg=ledger_device=\"{device}\""));
+        let rustflags = rustflags
+            .iter()
+            .map(|f| toml_string(f))
+            .collect::<Vec<_>>()
+            .join(", ");
 
-        if builtin {
-            // Devices sharing a triple would overwrite each other's
-            // artifacts in a shared target directory.
-            BuildTarget {
-                target: device.builtin_triple().to_string(),
-                target_dir: Some(
-                    target_dir.join("builtin").join(device.as_ref()),
+        // Devices sharing a triple would overwrite each other's artifacts
+        // in a shared target directory.
+        BuildTarget {
+            target: device.builtin_triple().to_string(),
+            cargo_args: vec![
+                format!(
+                    "--target-dir={}",
+                    target_dir.join("builtin").join(device.as_ref())
                 ),
-                release_dir: Some(
-                    target_dir.join(device.as_ref()).join("release"),
-                ),
-                rustflags,
-            }
-        } else {
-            BuildTarget {
-                target: device.to_string(),
-                target_dir: None,
-                release_dir: None,
-                rustflags,
-            }
+                "--config".to_string(),
+                format!("build.rustflags = [{rustflags}]"),
+            ],
+            release_dir: Some(target_dir.join(device.as_ref()).join("release")),
         }
     }
 }
 
-/// The rustflags Cargo would use for the custom target of `device`, from
-/// the first source that sets them: `CARGO_ENCODED_RUSTFLAGS`, `RUSTFLAGS`,
-/// `target.<device>.rustflags`, `build.rustflags`.
-///
-/// The build passes its own flags through `CARGO_ENCODED_RUSTFLAGS`, which
-/// overrides all of these, so they are carried over here. This keeps the
-/// `[target.<device>]` sections of the apps' Cargo config working with the
-/// built-in triples.
-fn user_rustflags(device: Device) -> Vec<String> {
-    if let Ok(flags) = std::env::var("CARGO_ENCODED_RUSTFLAGS")
-        && !flags.is_empty()
-    {
-        return flags.split('\x1f').map(String::from).collect();
-    }
-    if let Ok(flags) = std::env::var("RUSTFLAGS") {
-        return flags.split_whitespace().map(String::from).collect();
-    }
-    config_rustflags(&format!("target.{device}.rustflags"))
-        .or_else(|| config_rustflags("build.rustflags"))
-        .unwrap_or_default()
+/// `s` as a TOML basic string.
+fn toml_string(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// Reads a rustflags value from the Cargo configuration (all config files
-/// merged, as Cargo sees them from the current directory).
-fn config_rustflags(key: &str) -> Option<Vec<String>> {
-    let output = Command::new("cargo")
-        .args(["-Zunstable-options", "config", "get", "--format=json-value"])
-        .arg(key)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        // Unset key (or a cargo without `config get`).
-        return None;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build(device: Device, metadata: Value) -> BuildTarget {
+        BuildTarget::new(device, &metadata, Utf8Path::new("/app/target"))
     }
-    match serde_json::from_slice(&output.stdout).ok()? {
-        serde_json::Value::String(s) => {
-            Some(s.split_whitespace().map(String::from).collect())
-        }
-        serde_json::Value::Array(values) => values
-            .into_iter()
-            .map(|v| v.as_str().map(String::from))
-            .collect(),
-        _ => None,
+
+    #[test]
+    fn custom_target_by_default() {
+        let t = build(Device::Stax, serde_json::json!({ "ledger": {} }));
+        assert_eq!(t.target, "stax");
+        assert!(t.cargo_args.is_empty());
+        assert!(t.release_dir.is_none());
+        let t = build(Device::Stax, Value::Null);
+        assert_eq!(t.target, "stax");
+    }
+
+    #[test]
+    fn builtin_target_opt_in() {
+        let t = build(
+            Device::Nanox,
+            serde_json::json!({ "ledger": {
+                "builtin_target": true,
+                "nanox": { "rustflags": ["-Copt-level=s"] },
+                "stax": { "rustflags": ["-Cfoo"] },
+            }}),
+        );
+        assert_eq!(t.target, "thumbv6m-none-eabi");
+        assert_eq!(t.cargo_args[0], "--target-dir=/app/target/builtin/nanox");
+        assert_eq!(t.cargo_args[1], "--config");
+        assert_eq!(
+            t.cargo_args[2],
+            "build.rustflags = [\"-Crelocation-model=ropi-rwpi\", \
+             \"-Clinker=link_wrap.sh\", \"-Clink-arg=-Tnanox_layout.ld\", \
+             \"-Clink-arg=-Tlink.ld\", \"-Clink-arg=--wrap=__stack_chk_fail\", \
+             \"-Clink-arg=--wrap=__stack_chk_init\", \
+             \"--cfg=ledger_device=\\\"nanox\\\"\", \"-Copt-level=s\"]"
+        );
+        assert_eq!(t.release_dir.unwrap(), "/app/target/nanox/release");
+    }
+
+    #[test]
+    fn shared_triple() {
+        let t = build(
+            Device::ApexP,
+            serde_json::json!({ "ledger": { "builtin_target": true } }),
+        );
+        assert_eq!(t.target, "thumbv8m.main-none-eabi");
+        assert_eq!(t.cargo_args[0], "--target-dir=/app/target/builtin/apex_p");
+        assert!(t.cargo_args[2].contains("-Tapex_p_layout.ld"));
     }
 }
