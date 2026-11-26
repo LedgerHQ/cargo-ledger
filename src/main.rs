@@ -15,7 +15,10 @@ use setup::{TargetSource, install_targets};
 use utils::*;
 
 mod setup;
+mod target;
 mod utils;
+
+use target::BuildTarget;
 
 #[derive(Parser, Debug)]
 #[command(name = "cargo")]
@@ -131,12 +134,30 @@ fn build_app(
     is_load: bool,
     remaining_args: Vec<String>,
 ) -> Result<(), LedgerError> {
+    // Retrieve package path and target directory
+    let mut cmd = cargo_metadata::MetadataCommand::new();
+    let res = cmd.no_deps().exec()?;
+    let this_pkg = res.packages.last().ok_or(LedgerError::MissingPackage)?;
+    let package_path = this_pkg
+        .manifest_path
+        .parent()
+        .ok_or(LedgerError::MissingField("package parent path"))?;
+
+    let build_target =
+        BuildTarget::new(device, &this_pkg.metadata, &res.target_directory);
+    println!(
+        "Building for target {} {}",
+        build_target.target,
+        build_target.cargo_args.join(" ")
+    );
+
     let elf_path = {
         let mut args: Vec<String> = vec![];
 
         args.push(String::from("build"));
         args.push(String::from("--release"));
-        args.push(format!("--target={}", device.as_ref()));
+        args.push(format!("--target={}", build_target.target));
+        args.extend(build_target.cargo_args);
         args.push(String::from(
             "--message-format=json-diagnostic-rendered-ansi",
         ));
@@ -175,17 +196,22 @@ fn build_app(
                 stderr: String::new(),
             });
         }
-        elf_path
+        // Put the ELF where the rest of the tooling (Ragger, Speculos
+        // commands, CI) expects it, so that the outputs derived from it
+        // land there too.
+        match &build_target.release_dir {
+            Some(dir) => {
+                let file_name = elf_path
+                    .file_name()
+                    .ok_or(LedgerError::MissingField("ELF file name"))?;
+                std::fs::create_dir_all(dir)?;
+                let dest = dir.join(file_name);
+                std::fs::copy(&elf_path, &dest)?;
+                dest
+            }
+            None => elf_path,
+        }
     };
-
-    // Retrieve package path
-    let mut cmd = cargo_metadata::MetadataCommand::new();
-    let res = cmd.no_deps().exec()?;
-    let this_pkg = res.packages.last().ok_or(LedgerError::MissingPackage)?;
-    let package_path = this_pkg
-        .manifest_path
-        .parent()
-        .ok_or(LedgerError::MissingField("package parent path"))?;
 
     // Retrieve hex path and export binary
     let hex_path = elf_path.with_extension("hex");

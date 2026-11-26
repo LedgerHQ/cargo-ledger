@@ -69,6 +69,49 @@ Arguments can be passed to modify this behaviour after inserting a `--` like so:
 cargo ledger build nanosplus --load -- --features one --artifact-dir=./output/
 ```
 
+#### Built-in Rust triples
+
+By default, apps are built with the custom target spec of the device
+(`--target=<device>`). An app can instead be built with the built-in Rust
+triple of the device's CPU, which needs no custom target spec:
+
+| Device | Triple |
+|---|---|
+| `nanox` | `thumbv6m-none-eabi` |
+| `nanosplus`, `stax`, `flex`, `apex_p` | `thumbv8m.main-none-eabi` |
+
+It requires `ledger_device_sdk` 1.47.0 or later, and opts in from the app's
+`Cargo.toml`:
+
+```toml
+[package.metadata.ledger]
+builtin_target = true
+# Optional per-device rustflags (the triple is shared by several devices,
+# so [target.<device>] sections of .cargo/config.toml do not apply)
+nanox = { icon = "...", rustflags = ["-Copt-level=s"] }
+```
+
+`cargo ledger` then passes the settings of the custom spec and the
+`ledger_device` cfg as `build.rustflags` (`--config`), added to the app's own
+`[build] rustflags`:
+
+```
+-Crelocation-model=ropi-rwpi -Clinker=link_wrap.sh
+-Clink-arg=-T<device>_layout.ld -Clink-arg=-Tlink.ld
+-Clink-arg=--wrap=__stack_chk_fail -Clink-arg=--wrap=__stack_chk_init
+--cfg=ledger_device="<device>"
+```
+
+- On a built-in triple, `target_os` is `none`: select device code with
+  `#[cfg(ledger_device = "...")]` (see the SDK README).
+- `RUSTFLAGS`, or a `[target.<triple>]` / `[target.'cfg(..)']` rustflags
+  section, replaces `build.rustflags`: the SDK build scripts then stop with an
+  explanation.
+- Each device builds in `target/builtin/<device>/`, as devices share triples;
+  the ELF is copied to `target/<device>/release/`, where the `.hex`, `.apdu`
+  and `.sha256` files are generated as usual.
+- `link_wrap.sh` is still needed: `cargo ledger setup` installs it.
+
 #### Build outputs
 
 During the build, `ledgerblue` is invoked to generate an `.apdu` file next to the
