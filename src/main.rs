@@ -93,6 +93,28 @@ enum MainCommand {
         #[clap(last = true)]
         remaining_args: Vec<String>,
     },
+    #[clap(
+        about = "run cargo clippy for a given device",
+        long_about = "Run cargo clippy with the same target and flags as `cargo ledger build`: the custom target spec of the device, or its built-in triple when the app opts in with `builtin_target`.\n\nArguments after `--` go to cargo clippy, e.g. `cargo ledger clippy nanox -- --features foo -- -Dwarnings`."
+    )]
+    Clippy {
+        #[clap(value_enum)]
+        #[clap(help = "device to lint for")]
+        device: Device,
+        #[clap(last = true)]
+        remaining_args: Vec<String>,
+    },
+    #[clap(
+        about = "run cargo check for a given device",
+        long_about = "Run cargo check with the same target and flags as `cargo ledger build`: the custom target spec of the device, or its built-in triple when the app opts in with `builtin_target`.\n\nArguments after `--` go to cargo check."
+    )]
+    Check {
+        #[clap(value_enum)]
+        #[clap(help = "device to check for")]
+        device: Device,
+        #[clap(last = true)]
+        remaining_args: Vec<String>,
+    },
 }
 
 fn main() {
@@ -125,6 +147,62 @@ fn entrypoint() -> Result<(), LedgerError> {
         } => {
             build_app(d, a, r)?;
         }
+        MainCommand::Clippy {
+            device,
+            remaining_args,
+        } => run_cargo("clippy", device, remaining_args)?,
+        MainCommand::Check {
+            device,
+            remaining_args,
+        } => run_cargo("check", device, remaining_args)?,
+    }
+    Ok(())
+}
+
+/// Target and flags for building the app of the current directory for
+/// `device`, with the path of the app package.
+fn app_build_target(
+    device: Device,
+) -> Result<(BuildTarget, Utf8PathBuf), LedgerError> {
+    let mut cmd = cargo_metadata::MetadataCommand::new();
+    let res = cmd.no_deps().exec()?;
+    let this_pkg = res.packages.last().ok_or(LedgerError::MissingPackage)?;
+    let package_path = this_pkg
+        .manifest_path
+        .parent()
+        .ok_or(LedgerError::MissingField("package parent path"))?
+        .to_path_buf();
+    let build_target =
+        BuildTarget::new(device, &this_pkg.metadata, &res.target_directory);
+    Ok((build_target, package_path))
+}
+
+/// `cargo <subcommand>` arguments selecting the target of `build_target`.
+fn cargo_args(subcommand: &str, build_target: &BuildTarget) -> Vec<String> {
+    let mut args = vec![
+        subcommand.to_string(),
+        format!("--target={}", build_target.target),
+    ];
+    args.extend(build_target.cargo_args.iter().cloned());
+    args
+}
+
+/// Run `cargo <subcommand>` for `device`, with the target and flags of
+/// `cargo ledger build`, and exit with its status when it fails.
+fn run_cargo(
+    subcommand: &str,
+    device: Device,
+    remaining_args: Vec<String>,
+) -> Result<(), LedgerError> {
+    let (build_target, _) = app_build_target(device)?;
+    let args = cargo_args(subcommand, &build_target);
+    println!("Running cargo {}", args.join(" "));
+    let status = Command::new("cargo")
+        .args(args)
+        .args(&remaining_args)
+        .status()?;
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
     }
     Ok(())
 }
@@ -134,17 +212,7 @@ fn build_app(
     is_load: bool,
     remaining_args: Vec<String>,
 ) -> Result<(), LedgerError> {
-    // Retrieve package path and target directory
-    let mut cmd = cargo_metadata::MetadataCommand::new();
-    let res = cmd.no_deps().exec()?;
-    let this_pkg = res.packages.last().ok_or(LedgerError::MissingPackage)?;
-    let package_path = this_pkg
-        .manifest_path
-        .parent()
-        .ok_or(LedgerError::MissingField("package parent path"))?;
-
-    let build_target =
-        BuildTarget::new(device, &this_pkg.metadata, &res.target_directory);
+    let (build_target, package_path) = app_build_target(device)?;
     println!(
         "Building for target {} {}",
         build_target.target,
@@ -152,12 +220,8 @@ fn build_app(
     );
 
     let elf_path = {
-        let mut args: Vec<String> = vec![];
-
-        args.push(String::from("build"));
+        let mut args = cargo_args("build", &build_target);
         args.push(String::from("--release"));
-        args.push(format!("--target={}", build_target.target));
-        args.extend(build_target.cargo_args);
         args.push(String::from(
             "--message-format=json-diagnostic-rendered-ansi",
         ));
@@ -236,9 +300,9 @@ fn build_app(
     );
 
     let apdu_path = elf_path.with_extension("apdu");
-    dump_with_ledgerblue(package_path, &lb_params, &apdu_path)?;
+    dump_with_ledgerblue(&package_path, &lb_params, &apdu_path)?;
     if is_load {
-        install_with_ledgerblue(package_path, &lb_params, &apdu_path)?;
+        install_with_ledgerblue(&package_path, &lb_params, &apdu_path)?;
     }
 
     remaining_args
@@ -329,3 +393,81 @@ fn build_app(
 //         };
 //     }
 // }
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    use cargo_metadata::camino::Utf8Path;
+
+    fn parse(args: &[&str]) -> MainCommand {
+        let Cli::Ledger(cli) =
+            Cli::try_parse_from(["cargo", "ledger"].iter().chain(args.iter()))
+                .unwrap();
+        cli.command
+    }
+
+    #[test]
+    fn clippy_args_pass_through() {
+        match parse(&[
+            "clippy",
+            "nanosplus",
+            "--",
+            "--features",
+            "foo",
+            "--",
+            "-Dwarnings",
+        ]) {
+            MainCommand::Clippy {
+                device,
+                remaining_args,
+            } => {
+                assert_eq!(device, Device::Nanosplus);
+                assert_eq!(
+                    remaining_args,
+                    ["--features", "foo", "--", "-Dwarnings"]
+                );
+            }
+            c => panic!("unexpected command {c:?}"),
+        }
+        match parse(&["check", "apex_p"]) {
+            MainCommand::Check {
+                device,
+                remaining_args,
+            } => {
+                assert_eq!(device, Device::ApexP);
+                assert!(remaining_args.is_empty());
+            }
+            c => panic!("unexpected command {c:?}"),
+        }
+    }
+
+    #[test]
+    fn cargo_args_custom_target() {
+        let t = BuildTarget::new(
+            Device::Stax,
+            &serde_json::json!({ "ledger": {} }),
+            Utf8Path::new("/app/target"),
+        );
+        assert_eq!(cargo_args("clippy", &t), ["clippy", "--target=stax"]);
+    }
+
+    #[test]
+    fn cargo_args_builtin_target() {
+        let t = BuildTarget::new(
+            Device::Nanox,
+            &serde_json::json!({ "ledger": { "builtin_target": true } }),
+            Utf8Path::new("/app/target"),
+        );
+        let args = cargo_args("check", &t);
+        assert_eq!(
+            args[..3],
+            [
+                "check",
+                "--target=thumbv6m-none-eabi",
+                "--target-dir=/app/target/builtin/nanox"
+            ]
+        );
+        assert_eq!(args[3], "--config");
+        assert!(args[4].contains("--cfg=ledger_device=\\\"nanox\\\""));
+    }
+}
