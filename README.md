@@ -121,3 +121,26 @@ alongside the `.apdu` file (e.g. `myapp.apdu` and `myapp.sha256`).
 
 When an artifact directory is provided (`--artifact-dir=<dir>`), the `.hex`,
 `.apdu` and `.sha256` files are also copied there.
+
+### Linting and checking
+
+```
+cargo ledger clippy nanox
+cargo ledger check stax
+```
+
+`cargo ledger clippy <device>` and `cargo ledger check <device>` run
+`cargo clippy` and `cargo check` with the same target and flags as
+`cargo ledger build <device>`: the custom target spec of the device
+(`--target=<device>`), or its built-in triple with the settings above when the
+app opts in with `builtin_target`. Opted-in apps are then linted as they are
+built, with no `[target.<device>]` section passing the `ledger_device` cfg.
+
+Arguments after `--` go to cargo; a second `--` passes options to clippy
+itself:
+
+```
+cargo ledger clippy nanosplus -- --features one -- -Dwarnings
+```
+
+They do not use `--release` unless it is passed after `--`.
